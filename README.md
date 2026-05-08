@@ -1,67 +1,73 @@
 # muninn-utilities
 
-Muninn-flavored Python utilities, packaged for boot-time materialization into
-`~/muninn_utils/` at the start of every Muninn session.
+Source-of-truth for everything Muninn-flavored that runs in a session:
 
-These started as `utility-code` memories in Turso, materialized to disk by
-the `remembering` skill's `install_utilities()`. Per memory `0d63ed4f`,
-source-of-truth has moved from Turso to files: each utility lives in this
-repo, gets a flowing-graph refactor where applicable, and ships with tests.
+- `remembering/` — Muninn's memory subsystem (Turso-backed, FTS5, decision traces, autonomous curation). Skill-shaped (`SKILL.md`, `scripts/`, `references/`, `tests/`) so it can still be mounted under `/mnt/skills/user/remembering/` for backward compatibility.
+- `muninn_utils/` — Python package of flowing-graph orchestrators that boot materializes into `~/muninn_utils/`. Currently `blog_publish`, `bsky_card`, `issue_close` (more migrating from Turso `utility-code` memories per memory `0d63ed4f`).
+
+Both used to live elsewhere — `remembering/` in
+[`oaustegard/claude-skills`](https://github.com/oaustegard/claude-skills) as a
+generic skill, `muninn_utils/*` as Turso `utility-code` memories materialized
+at boot. Both became Muninn-specific in practice. This is their dedicated
+home.
 
 ## Layout
 
 ```
 muninn-utilities/
-├── muninn_utils/              # Importable Python package
-│   ├── __init__.py
-│   ├── blog_publish.py        # publish_and_announce — page → wait → feed; bsky detached
-│   ├── bsky_card.py           # compose_link_post — fetch_og + facets → blob → embed → post
-│   ├── issue_close.py         # github-procedures §7 (close + capture LEARNING)
+├── remembering/            # Memory subsystem (skill-shaped)
+│   ├── SKILL.md
+│   ├── scripts/            # boot, memory, turso, hints, tasks, …
+│   ├── references/
 │   └── tests/
-└── README.md
+├── muninn_utils/           # Importable Python package
+│   ├── __init__.py
+│   ├── blog_publish.py
+│   ├── bsky_card.py
+│   ├── issue_close.py
+│   └── tests/
+└── .github/workflows/
+    └── sync-remembering-to-claude-skills.yml   # mirrors remembering/ downstream
 ```
 
 ## How it gets to a session
 
-Two paths, both pointed at this repo:
+A Muninn session bootstraps in this order:
 
-1. **Claude Code on the Web** — `boot-ccotw.sh` in
-   [`oaustegard/claude-workspace`](https://github.com/oaustegard/claude-workspace)
-   tarballs this repo and copies `muninn_utils/` into `$HOME/muninn_utils/`.
-2. **Claude.ai (`remembering.boot()`)** — the `remembering` skill in
-   [`oaustegard/claude-skills`](https://github.com/oaustegard/claude-skills)
-   does the same fetch from inside Python, after `install_utilities()`.
+1. **Container layer** restored (system packages, Python deps)
+2. **muninn-utilities** tarball fetched first — `remembering/` and `muninn_utils/` both land on disk
+3. **Boot** runs from `remembering` here (loads identity, profile, ops, recent memories from Turso; materializes any non-migrated `utility-code` memories as `~/muninn_utils/` fallback)
+4. **claude-skills** tarball fetched for general skills (`flowing`, `browsing-bluesky`, `closing-issues`, etc.)
 
-Both run after `install_utilities()` so disk files override any Turso
-materialization for utilities migrated here. Utilities still living in
-Turso `utility-code` memories continue to work via the materialization
-fallback.
+Both [`oaustegard/claude-workspace`](https://github.com/oaustegard/claude-workspace)
+(Claude Code on the Web) and the Claude.ai project instructions point here.
 
-The repo is **public** so the fetch needs no `GH_TOKEN`.
+## claude-skills mirror
 
-## Adding a utility
+`remembering/` is auto-mirrored to `oaustegard/claude-skills/remembering/`
+via the workflow in `.github/workflows/sync-remembering-to-claude-skills.yml`.
+The mirror is **deprecated** — kept fresh for marketplace continuity, not for
+new development. To change `remembering`, edit the files here.
 
-1. Land it as `muninn_utils/<name>.py` with a flowing-graph orchestrator
-   (see existing utilities for the pattern: `validate=`, `retry_until=`,
-   `detached=True`, parallel layers via `depends_on=`)
-2. Add tests under `muninn_utils/tests/test_<name>_flow.py` covering
-   topology, validate gates, retry budget, and detached-failure isolation
-3. Open a PR. Once merged, the next session boot in any environment
-   pulls the new file automatically — no Turso edit required.
+The workflow opens a PR in claude-skills on every push to `main` that touches
+`remembering/`. It needs a `SKILLS_PAT` secret with `repo` scope on
+oaustegard/claude-skills.
 
 ## Tests
 
 ```
 python3 -m pytest muninn_utils/tests/
+python3 remembering/tests/test_hardening.py
 ```
 
-Tests resolve the `flowing` skill from `/mnt/skills/user/flowing` (canonical
-install) with fallback to a sibling `claude-skills` clone, so they run both
-inside a Muninn session and from a plain checkout.
+`muninn_utils` tests resolve `flowing` from `/mnt/skills/user/flowing` (or a
+sibling claude-skills clone). `remembering` tests use mocks for Turso and
+GitHub I/O — no live credentials required.
 
 ## Background
 
 - [memory `0d63ed4f`](https://github.com/oaustegard/claude-skills) — migration tracker
-- [`oaustegard/muninn.austegard.com#124`](https://github.com/oaustegard/muninn.austegard.com/pull/124) — first batch of three (initially landed in mac, since moved here)
-- [`oaustegard/claude-workspace#55`](https://github.com/oaustegard/claude-workspace/pull/55) — CCotw boot fetch
-- [`oaustegard/claude-skills#625`](https://github.com/oaustegard/claude-skills/pull/625) — Claude.ai boot fetch
+- [`oaustegard/muninn.austegard.com#124`](https://github.com/oaustegard/muninn.austegard.com/pull/124) — first batch of utilities (initially landed in mac, since moved here)
+- [`oaustegard/muninn.austegard.com#125`](https://github.com/oaustegard/muninn.austegard.com/pull/125) — removed `muninn_utils/` from mac
+- [`oaustegard/claude-workspace#55`](https://github.com/oaustegard/claude-workspace/pull/55) — CCotw boot fetcher
+- [`oaustegard/claude-skills#625`](https://github.com/oaustegard/claude-skills/pull/625) — Claude.ai boot fetcher (in `remembering`)
