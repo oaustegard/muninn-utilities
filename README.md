@@ -26,8 +26,7 @@ muninn-utilities/
 │   ├── bsky_card.py
 │   ├── issue_close.py
 │   └── tests/
-└── .github/workflows/
-    └── sync-remembering-to-claude-skills.yml   # mirrors remembering/ downstream
+└── README.md
 ```
 
 ## How it gets to a session
@@ -44,14 +43,18 @@ Both [`oaustegard/claude-workspace`](https://github.com/oaustegard/claude-worksp
 
 ## claude-skills mirror
 
-`remembering/` is auto-mirrored to `oaustegard/claude-skills/remembering/`
-via the workflow in `.github/workflows/sync-remembering-to-claude-skills.yml`.
-The mirror is **deprecated** — kept fresh for marketplace continuity, not for
-new development. To change `remembering`, edit the files here.
+`remembering/` is auto-mirrored to
+[`oaustegard/claude-skills/remembering/`](https://github.com/oaustegard/claude-skills/tree/main/remembering)
+via a scheduled workflow that lives in `claude-skills` itself
+(`.github/workflows/sync-remembering-from-muninn-utilities.yml`). It pulls
+the latest `remembering/` from this public repo and opens a PR in
+claude-skills if anything changed.
 
-The workflow opens a PR in claude-skills on every push to `main` that touches
-`remembering/`. It needs a `SKILLS_PAT` secret with `repo` scope on
-oaustegard/claude-skills.
+The workflow is a same-repo write so it needs no extra secrets — the
+default `GITHUB_TOKEN` is sufficient.
+
+The mirror is **deprecated** — kept fresh for marketplace continuity, not
+for new development. To change `remembering`, edit the files here.
 
 ## Tests
 
