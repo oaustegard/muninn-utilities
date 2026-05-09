@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import sys
@@ -9,20 +10,26 @@ UTIL_DIR = os.environ.get("MUNINN_UTIL_DIR", os.path.join(os.path.expanduser("~"
 CODE_START = "<" + "<" + "<PYTHON>" + ">" + ">"
 CODE_END = "<" + "<" + "<END>" + ">" + ">"
 
-# muninn_utils source-of-truth has moved from Turso `utility-code` memories
-# to files in oaustegard/muninn-utilities (public). See memory `0d63ed4f`.
+# muninn_utils source-of-truth lives in oaustegard/muninn-utilities (public).
+# Turso `utility-code` memories were the previous source; they are now archived
+# (priority=-1) and retained only as forensic backup. See memories `0d63ed4f`
+# (migration decision) and `9a61ecc8` (archive action record).
 MUNINN_UTILS_REPO = os.environ.get("MUNINN_UTILS_REPO", "oaustegard/muninn-utilities")
 MUNINN_UTILS_BRANCH = os.environ.get("MUNINN_UTILS_BRANCH", "main")
 MUNINN_UTILS_SUBDIR = "muninn_utils"
+USE_WHEN_FILE = "use_when.json"
 
 # Valid utility names: alphanumeric, underscore, hyphen only
 _VALID_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_-]*$')
 
+
 # @lat: [[infrastructure#Utility Materialization]]
 def install_utilities() -> dict:
     """
-    Materialize all utility-code memories to disk.
-    Called by boot() after cache refresh.
+    Materialize utility-code memories to disk. LEGACY — boot() no longer calls
+    this. Kept for any caller that still depends on memory-based materialization
+    (e.g. one-off recovery, tests). New utilities should land in the
+    oaustegard/muninn-utilities repo, not memory.
 
     Returns:
         Dict mapping utility names to {"path": file_path, "use_when": str|None}
@@ -78,24 +85,22 @@ def install_utilities() -> dict:
 # @lat: [[infrastructure#Utility Materialization]]
 def fetch_muninn_utils() -> dict:
     """
-    Pull canonical muninn_utils/*.py from oaustegard/muninn-utilities over
-    the Turso materialization. Source-of-truth has moved from `utility-code`
-    memories to files in a dedicated public repo (per memory 0d63ed4f).
-
-    Runs after install_utilities() so disk files override Turso copies for
-    utilities already migrated. Non-migrated utilities continue to work via
-    the Turso fallback that install_utilities() produces.
+    Pull canonical muninn_utils/*.py and use_when.json from
+    oaustegard/muninn-utilities. This is the sole source of truth for utility
+    code and discoverability metadata at boot.
 
     Single tarball fetch from codeload.github.com — no auth required since
     the repo is public. Skips tests/ subdir; only top-level *.py land in
-    UTIL_DIR.
+    UTIL_DIR. use_when.json is parsed in-memory (not written to disk).
 
     Returns:
         Dict with keys:
-        - fetched: list[str] — names of .py files written
-        - failed: list[str] — names that errored during write
+        - fetched:  list[str] — names of .py files written
+        - failed:   list[str] — names that errored during write
+        - use_when: dict[str, str] — utility name → trigger description (parsed
+                    from use_when.json in the repo; empty if absent or invalid)
     """
-    result = {"fetched": [], "failed": []}
+    result = {"fetched": [], "failed": [], "use_when": {}}
 
     os.makedirs(UTIL_DIR, exist_ok=True)
     init_path = os.path.join(UTIL_DIR, "__init__.py")
@@ -120,12 +125,25 @@ def fetch_muninn_utils() -> dict:
             for member in tf.getmembers():
                 if not member.isfile():
                     continue
-                # Tarball paths look like: <repo>-<sha>/muninn_utils/<name>.py
+                # Tarball paths: <repo>-<sha>/muninn_utils/<name>{.py,.json}
                 # Skip nested dirs (tests/, etc.)
                 parts = member.name.split("/")
                 if len(parts) != 3 or parts[1] != MUNINN_UTILS_SUBDIR:
                     continue
                 name = parts[2]
+
+                # use_when.json — parse in-memory, do not write to disk
+                if name == USE_WHEN_FILE:
+                    try:
+                        fileobj = tf.extractfile(member)
+                        if fileobj is not None:
+                            result["use_when"] = json.loads(
+                                fileobj.read().decode("utf-8")
+                            )
+                    except Exception:
+                        pass  # malformed manifest is non-fatal
+                    continue
+
                 if not name.endswith(".py"):
                     continue
                 stem = name[:-3]

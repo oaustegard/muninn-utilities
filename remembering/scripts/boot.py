@@ -666,28 +666,27 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     github_access = detect_github_access()
     _mark("github_detect")
 
-    # Install utility code memories to disk
-    installed_utils = install_utilities()
-    _mark("utilities")
-
-    # Override Turso copies with canonical files from the public
-    # oaustegard/muninn-utilities repo for migrated utilities (memory
-    # 0d63ed4f). Best-effort — never blocks boot.
+    # Pull canonical muninn_utils/*.py + use_when.json from the public
+    # oaustegard/muninn-utilities repo. The repo IS the source of truth;
+    # install_utilities() (Turso materialization) is retired. Best-effort —
+    # never blocks boot. See memories `0d63ed4f` (migration) and `9a61ecc8`
+    # (archive action).
+    installed_utils = {}
     try:
         repo_sync = fetch_muninn_utils()
+        use_when_map = repo_sync.get("use_when", {})
         for fname in repo_sync.get("fetched", []):
             stem = fname[:-3] if fname.endswith(".py") else fname
             if stem == "__init__":
                 continue
-            existing = installed_utils.get(stem) or {}
             installed_utils[stem] = {
                 "path": os.path.join(UTIL_DIR, fname),
-                "use_when": existing.get("use_when"),
+                "use_when": use_when_map.get(stem),
                 "source": "muninn-utilities",
             }
     except Exception:
-        pass  # Repo sync is best-effort; Turso materialization stands
-    _mark("muninn_utils_sync")
+        pass  # Repo sync is best-effort; missing utilities surface as empty
+    _mark("utilities")
 
     # Surface incomplete cross-session tasks (#332)
     pending_tasks = _load_incomplete_tasks()
