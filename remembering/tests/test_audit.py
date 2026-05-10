@@ -193,6 +193,54 @@ def f():
     assert "GH_TOKEN" not in drift["used_not_declared"]
 
 
+def test_scope_drift_indirect_entry_skips_declared_not_used():
+    """Manifest entries with `indirect: true` are required-but-transitively-accessed.
+
+    The static regex can't see them (e.g. read by a downstream library, or by
+    dynamic key like `os.environ[var_name_arg]`). They should not trigger
+    declared-not-used drift even when absent from the source.
+    """
+    manifest = {
+        "manifest_version": "0.3",
+        "env": [
+            {"name": "TURSO_TOKEN", "required": True, "indirect": True},
+            {"name": "TURSO_URL", "required": True, "indirect": True},
+            {"name": "GH_TOKEN", "required": True},
+        ],
+    }
+    source = "import os\ntoken = os.environ.get('GH_TOKEN')\n"
+    drift = audit.detect_scope_drift(source, manifest)
+    assert drift["declared_not_used"] == []  # TURSO_* suppressed by indirect
+    assert drift["used_not_declared"] == []  # GH_TOKEN is declared
+
+
+def test_scope_drift_indirect_entry_does_not_suppress_used_not_declared():
+    """Indirect only opts out of declared-not-used; used-not-declared still fires."""
+    manifest = {
+        "manifest_version": "0.3",
+        "env": [
+            {"name": "TURSO_TOKEN", "required": True, "indirect": True},
+        ],
+    }
+    source = "import os\ntoken = os.environ.get('UNDECLARED_VAR')\n"
+    drift = audit.detect_scope_drift(source, manifest)
+    assert "UNDECLARED_VAR" in drift["used_not_declared"]
+
+
+def test_scope_drift_indirect_false_or_missing_does_not_suppress():
+    """`indirect: false` or absent field → entry participates in drift normally."""
+    manifest = {
+        "manifest_version": "0.3",
+        "env": [
+            {"name": "ZAP_TOKEN", "required": True, "indirect": False},
+            {"name": "QUUX_URL", "required": True},  # no indirect field
+        ],
+    }
+    source = "import os\n"  # nothing read
+    drift = audit.detect_scope_drift(source, manifest)
+    assert sorted(drift["declared_not_used"]) == ["QUUX_URL", "ZAP_TOKEN"]
+
+
 # ── 4. index_diff ───────────────────────────────────────────────────
 
 def test_index_diff_clean_when_modules_match_manifests():
@@ -245,6 +293,20 @@ def test_index_diff_ignores_dunder_and_tests_dir():
         diff = audit.index_diff(manifests, modules)
         assert "__init__" not in diff["modules_only"]
         # tests/ is a directory, not a .py at the top level — should be ignored anyway.
+
+
+def test_index_diff_ignores_flowing_reexport_shim():
+    """`flowing` re-exports the canonical /mnt/skills/user/flowing/ skill,
+    so it has no install surface of its own and should be skipped."""
+    with tempfile.TemporaryDirectory() as tmp:
+        manifests = os.path.join(tmp, "manifests")
+        modules = os.path.join(tmp, "muninn_utils")
+        os.makedirs(manifests)
+        os.makedirs(modules)
+        _write(os.path.join(modules, "flowing.py"), "# re-export shim")
+
+        diff = audit.index_diff(manifests, modules)
+        assert "flowing" not in diff["modules_only"]
 
 
 # ── 5. full audit() ─────────────────────────────────────────────────
