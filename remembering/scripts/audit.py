@@ -11,6 +11,8 @@ actual code:
   3. Env-var names referenced by the utility's source via os.environ /
      os.getenv match those declared in the manifest's env[]. Drift in
      either direction (used-not-declared, declared-not-used) → warn.
+     Manifest entries with `indirect: true` opt out of drift checks
+     in both directions (still subject to required-loadable check).
   4. The set of manifest directory names matches the set of module stem
      names under `muninn_utils/`. Diff in either direction → warn.
 
@@ -48,8 +50,11 @@ _ENV_REF_RE = re.compile(
 )
 
 # Modules under muninn_utils/ that aren't real utilities and shouldn't be
-# audited as such.
-_IGNORED_MODULES = {"__init__"}
+# audited as such. `flowing` is a thin re-export shim of the canonical
+# /mnt/skills/user/flowing/scripts/flowing.py — it has no install surface
+# of its own, so demanding a manifest for it produces a permanent false
+# positive. The canonical flowing skill ships its own manifest.
+_IGNORED_MODULES = {"__init__", "flowing"}
 
 
 def load_manifest(path: str) -> Optional[dict]:
@@ -94,21 +99,37 @@ def _extract_env_refs(source: str) -> set[str]:
 def detect_scope_drift(source: str, manifest: dict) -> dict:
     """Compare env-var refs in `source` against `manifest['env'][]`.
 
+    Manifest entries with `indirect: true` are required by the utility but
+    accessed transitively — via library calls (e.g. `_exec` reading TURSO_*
+    inside the remembering library), via dynamic keys (`os.environ[arg_name]`),
+    or via downstream modules loaded after `sys.path.insert`. The audit's
+    static regex cannot see them, so they're excluded from the drift check
+    in both directions: they don't trigger declared-not-used warnings, and
+    they're not expected to appear as used-not-declared either.
+
+    The required-env-loadable check (check_env_loadable) still applies to
+    indirect entries — they must be set in the boot environment.
+
     Returns:
         {"used_not_declared": sorted list of names the source reads but the
                               manifest does not declare,
          "declared_not_used": sorted list of names the manifest declares but
-                              the source never references}
+                              the source never references (excluding indirect)}
     """
     declared = {
         e.get("name")
         for e in (manifest.get("env") or [])
         if e.get("name")
     }
+    indirect = {
+        e.get("name")
+        for e in (manifest.get("env") or [])
+        if e.get("indirect") is True and e.get("name")
+    }
     used = _extract_env_refs(source)
     return {
         "used_not_declared": sorted(used - declared),
-        "declared_not_used": sorted(declared - used),
+        "declared_not_used": sorted(declared - used - indirect),
     }
 
 
