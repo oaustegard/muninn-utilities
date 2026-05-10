@@ -27,7 +27,7 @@ from .state import get_session_id
 from .turso import _exec, _exec_batch
 from .memory import recall, recall_since, remember, supersede
 from .config import config_list, config_set, config_delete
-from .utilities import UTIL_DIR, install_utilities, fetch_muninn_utils
+from .utilities import UTIL_DIR, MANIFEST_DIR, install_utilities, fetch_muninn_utils
 
 
 # --- Ops Topic Classification ---
@@ -688,6 +688,18 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
         pass  # Repo sync is best-effort; missing utilities surface as empty
     _mark("utilities")
 
+    # Boot-time install-manifest audit (#6). Warn-quiet by default: surfaces
+    # a one-line summary on the boot output and structured warnings to stderr;
+    # never blocks. Best-effort — never raises.
+    audit_summary = ""
+    try:
+        from . import audit as _audit
+        _audit_result = _audit.audit(MANIFEST_DIR, UTIL_DIR, emit_to_stderr=True)
+        audit_summary = _audit_result["summary"]
+    except Exception:
+        pass
+    _mark("manifest_audit")
+
     # Surface incomplete cross-session tasks (#332)
     pending_tasks = _load_incomplete_tasks()
     _mark("tasks")
@@ -716,6 +728,10 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     # Format output with markdown headings
     result = _format_boot_output(profile_data, ops_by_topic, uncategorized, reference_ops, installed_utils, github_access, pending_tasks, recent_flights, due_reminders)
     _mark("format")
+
+    # Append the one-line manifest-audit summary if available.
+    if audit_summary:
+        result += f"\n{audit_summary}\n"
 
     # Append telemetry footer if requested
     if telemetry and len(_telemetry_marks) >= 2:

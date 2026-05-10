@@ -7,6 +7,9 @@ import tarfile
 import urllib.request
 
 UTIL_DIR = os.environ.get("MUNINN_UTIL_DIR", os.path.join(os.path.expanduser("~"), "muninn_utils"))
+# Manifests sit beside UTIL_DIR. fetch_muninn_utils() extracts them at boot
+# from the same tarball; remembering.scripts.audit reads from here.
+MANIFEST_DIR = os.environ.get("MUNINN_MANIFEST_DIR", os.path.join(os.path.dirname(UTIL_DIR), "manifests"))
 CODE_START = "<" + "<" + "<PYTHON>" + ">" + ">"
 CODE_END = "<" + "<" + "<END>" + ">" + ">"
 
@@ -21,6 +24,42 @@ USE_WHEN_FILE = "use_when.json"
 
 # Valid utility names: alphanumeric, underscore, hyphen only
 _VALID_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_-]*$')
+
+
+# Manifest extraction. Names must match _VALID_NAME_RE plus a `.` for the
+# extension; extracted-path realpath must be within MANIFEST_DIR.
+_VALID_MANIFEST_DIR_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_-]*$')
+_VALID_MANIFEST_FILE_RE = re.compile(r'^[A-Za-z0-9._-]+\.(json|md)$')
+
+
+def _extract_manifest_member(tf, member, subdir: str, fname: str) -> None:
+    """Write a single manifest file from the tarball into MANIFEST_DIR/<subdir>/.
+
+    Path-safe: rejects `..`, absolute paths, and any resolution outside
+    MANIFEST_DIR. Best-effort — silently skips on any error.
+    """
+    if not _VALID_MANIFEST_DIR_RE.match(subdir):
+        return
+    if not _VALID_MANIFEST_FILE_RE.match(fname):
+        return
+
+    target_dir = os.path.join(MANIFEST_DIR, subdir)
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, fname)
+
+    manifest_realpath = os.path.realpath(MANIFEST_DIR) + os.sep
+    resolved = os.path.realpath(target_path)
+    if not resolved.startswith(manifest_realpath):
+        return
+
+    try:
+        fileobj = tf.extractfile(member)
+        if fileobj is None:
+            return
+        with open(target_path, "wb") as f:
+            f.write(fileobj.read())
+    except Exception:
+        pass
 
 
 # @lat: [[infrastructure#Utility Materialization]]
@@ -125,9 +164,17 @@ def fetch_muninn_utils() -> dict:
             for member in tf.getmembers():
                 if not member.isfile():
                     continue
-                # Tarball paths: <repo>-<sha>/muninn_utils/<name>{.py,.json}
-                # Skip nested dirs (tests/, etc.)
+                # Tarball paths:
+                #   <repo>-<sha>/muninn_utils/<name>{.py,.json}    (utilities)
+                #   <repo>-<sha>/manifests/<utility>/<file>        (install manifests, 4-deep)
                 parts = member.name.split("/")
+
+                # Manifests: 4 segments, second is "manifests".
+                if len(parts) == 4 and parts[1] == "manifests":
+                    _extract_manifest_member(tf, member, parts[2], parts[3])
+                    continue
+
+                # Utilities: 3 segments, second is muninn_utils/.
                 if len(parts) != 3 or parts[1] != MUNINN_UTILS_SUBDIR:
                     continue
                 name = parts[2]
