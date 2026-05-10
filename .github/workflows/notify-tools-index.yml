@@ -1,0 +1,38 @@
+name: Notify tools.json sync
+
+# When manifests/ or the generator change on main, fire a repository_dispatch
+# at muninn.austegard.com so its update-tools-index workflow rebuilds
+# .well-known/tools.json promptly. The daily schedule there is the backstop;
+# this is the prompt-sync path.
+#
+# Requires the secret MUNINN_SITE_DISPATCH_PAT — a classic PAT with `repo`
+# scope on oaustegard/muninn.austegard.com. If the secret is absent the step
+# fails loudly (intentional: silent failure here would defeat the purpose).
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "manifests/**"
+      - "scripts/build-tools-index.py"
+      - ".github/workflows/notify-tools-index.yml"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fire repository_dispatch on muninn.austegard.com
+        env:
+          PAT: ${{ secrets.MUNINN_SITE_DISPATCH_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "MUNINN_SITE_DISPATCH_PAT secret is not set." >&2
+            echo "Configure it with 'repo' scope on oaustegard/muninn.austegard.com." >&2
+            exit 1
+          fi
+          curl -sS -f -X POST \
+            -H "User-Agent: muninn-utilities-ci" \
+            -H "Authorization: token $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/oaustegard/muninn.austegard.com/dispatches" \
+            -d '{"event_type":"manifests-changed"}'
