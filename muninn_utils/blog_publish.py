@@ -50,7 +50,7 @@ import urllib.error
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-from bsky_card import compose_link_post
+from bsky_card import compose_link_post, final_text_for_post
 from bsky_limit import fits as _bsky_fits, BSKY_LIMIT
 from flowing import task, Flow, StepState
 
@@ -412,9 +412,16 @@ def publish_and_announce(path, content, bsky_text, auth,
         return {"feed_sha": sha}
 
     def must_be_under_bsky_limit(**deps):
-        if not _bsky_fits(bsky_text):
+        # Measure the post-parse record.text (markdown stripped, target URL
+        # appended only if not already facet-linked) — what AT Proto will
+        # actually count. Raw bsky_text under-rejects when the URL append
+        # adds 80+ graphemes; over-rejects when markdown shrinks the visible
+        # text. Issue oaustegard/muninn-utilities#11.
+        final = final_text_for_post(bsky_text, url)
+        if not _bsky_fits(final):
             raise ValueError(
-                f"bsky_text exceeds {BSKY_LIMIT} graphemes — would be rejected by AT Proto. "
+                f"bsky_text (after markdown strip + URL append) exceeds "
+                f"{BSKY_LIMIT} graphemes — would be rejected by AT Proto. "
                 "Trim before calling, or use bsky_limit.truncate()."
             )
 

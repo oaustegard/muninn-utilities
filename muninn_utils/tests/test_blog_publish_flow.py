@@ -30,6 +30,15 @@ bsky_card_stub = types.ModuleType("bsky_card")
 # Collapsed compose_link_post returns {record, post, og_tags, thumb_blob,
 # facets, detached_failures} — see #617.
 bsky_card_stub.compose_link_post = MagicMock()
+
+
+def _stub_final_text_for_post(text, url):
+    # Mirror of bsky_card.final_text_for_post for stub purposes (markdown
+    # stripping isn't exercised here — just the URL-append fallback).
+    return f"{text}\n{url}" if url not in text else text
+
+
+bsky_card_stub.final_text_for_post = _stub_final_text_for_post
 sys.modules["bsky_card"] = bsky_card_stub
 
 # bsky_limit: prefer the real materialized one (correct grapheme counting),
@@ -179,6 +188,37 @@ def test_validate_blocks_oversize_bsky_text(monkeypatch):
     assert "announce_bsky" in failures
     assert "graphemes" in failures["announce_bsky"].lower() or \
            str(bsky_limit.BSKY_LIMIT) in failures["announce_bsky"]
+
+
+def test_validate_blocks_when_url_append_pushes_over_limit(monkeypatch):
+    """Raw bsky_text fits 300, but URL append pushes record.text past 300.
+
+    Pre-#11 behavior: validate measured raw `bsky_text` and let the post
+    fire, then AT Proto would reject with "grapheme too big". Post-#11:
+    validate measures `final_text_for_post(bsky_text, url)`, which
+    includes the URL append fallback. Catches the bug structurally.
+    """
+    bc = _reset(monkeypatch)
+
+    # 290 graphemes — fits 300 on its own, but URL append blows past it.
+    bsky_text = "x" * 290
+    result = bp.publish_and_announce(
+        path="blog/long.html",
+        content="<html/>",
+        bsky_text=bsky_text,
+        auth={"access_jwt": "j", "did": "did", "handle": "h"},
+        feed_entry={"title": "L", "summary": "..."},
+    )
+
+    # Main chain still completed.
+    assert result["commit_sha"] == "abcdef1234"
+    # But bsky chain rejected at the validate boundary.
+    assert bc.compose_link_post.call_count == 0
+    assert result["bsky_post"] is None
+    failures = dict(result["detached_failures"])
+    assert "announce_bsky" in failures
+    assert str(bsky_limit.BSKY_LIMIT) in failures["announce_bsky"] or \
+           "graphemes" in failures["announce_bsky"].lower()
 
 
 def test_retry_until_consumes_budget_when_deploy_slow(monkeypatch):
