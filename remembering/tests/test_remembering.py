@@ -212,6 +212,37 @@ def test_remember_types_validation():
     print("PASS: Type validation works")
 
 
+def test_remember_mem_type_alias():
+    """#640: mem_type is accepted as an alias for type (kwarg shadow workaround)"""
+    from scripts import remember, recall, forget
+
+    # mem_type alone works
+    mem_id = remember("alias-test-1", mem_type="experience", tags=["test-mem-type-alias"])
+    assert mem_id
+    forget(mem_id)
+
+    # type still works (regression guard)
+    mem_id = remember("alias-test-2", type="experience", tags=["test-mem-type-alias"])
+    assert mem_id
+    forget(mem_id)
+
+    # Passing both raises
+    try:
+        remember("alias-test-3", type="experience", mem_type="experience")
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "not both" in str(e)
+
+    # Neither raises (via the existing invalid-type path)
+    try:
+        remember("alias-test-4")
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "Invalid type" in str(e)
+
+    print("PASS: mem_type alias works")
+
+
 def test_remember_alternatives():
     """Test 13: Alternatives parameter works for decision memories"""
     from scripts import remember, recall, forget, get_alternatives
