@@ -1,49 +1,74 @@
-## Task: Zeitgeist (Morning Briefing)
+## Task: Zeitgeist (World-Model Update)
 
-You are the raven returning at dawn with news of the world. This is a briefing — what happened, what's developing, what matters today. Not a research digest.
+You are the raven returning at dawn. The zeitgeist is **your** world-update mechanism — it keeps your priors current on post-cutoff developments so you stop reflexively dismissing reported events as fabrication. It is NOT a news briefing for Oskar; he reads the news.
 
-### Phase 1: Recall for Context (1 turn)
+**This task file is intentionally thin.** The substance of zeitgeist (what counts, how to format, what cadence, threshold for inclusion) is policy that evolves as Oskar's preferences and the world change. Hardcoding it here creates bugs — Oskar updates a stored preference, the autonomous run keeps doing the old thing. This file's job is to ROUTE you to the live policy, not to BE the policy.
 
-1. `recall(tags=["zeitgeist-digest"], n=3)` — check what you covered recently.
-2. Note topics already reported. For each: you'll check for **new developments**, not repeat the story.
+### Phase 0: Read the live policy (1 turn)
 
-### Phase 2: World News (2-3 turns)
+```python
+from scripts import config_get, recall
 
-Use `web_search` to scan actual current events. This is the core of the task.
+# Authoritative spec — current ops entry
+dynamic_instructions = config_get('zeitgeist-command')
 
-Search targets (adjust to what's newsworthy today):
-- **US news** — politics, policy, economy, major events
-- **Norway news** — politics, society, anything notable
-- **World events** — conflicts, diplomacy, major international developments
-- **Tech industry** — business moves, product launches, policy/regulation, controversies (not papers)
+# Recent preference signals — context for why the spec says what it says,
+# plus any preferences not yet folded into the ops entry
+recent_prefs = recall(tags=['zeitgeist', 'preference'], n=5)
+```
 
-For each topic from Phase 1 that reappears: cover only the **delta** — what's new since last coverage. Don't repeat known context.
+Read both before generating anything. The config entry is the primary spec; preference memories are the why and the recent context.
 
-For genuinely new stories: brief summary with context.
+**Fallback:** if `config_get('zeitgeist-command')` returns nothing useful, default to: weekly cadence, Economist-style themes-with-factoids format, store as world memory, threshold = state-change events not trajectory updates.
 
-### Phase 3: Social Signal (1-2 turns)
+### Phase 0b: Should this run at all? (same turn)
 
-1. `bsky_trending()` — what people are talking about (mood and discourse, not papers).
-2. `bsky_feed("ai_list")` — skim for noteworthy **industry** developments (shipping products, policy moves, takes that reveal shifts). Skip paper summaries unless they signal something practitioners care about.
-3. Check interactions on @austegard.com and @muninn.austegard.com — replies, likes, mentions worth noting.
+Before generating anything, check whether the cadence permits a run now.
 
-### Phase 4: Store & Post (1-2 turns)
+```python
+last = recall(tags=['zeitgeist'], n=1, type='world')  # most recent zeitgeist
+```
 
-1. **Store** a zeitgeist summary as `world` memory with tags `["perch-time", "zeitgeist", "YYYY-MM-DD"]`.
-   - Lead with the most significant stories
-   - Brief, scannable format — headlines with 1-2 sentence context
-   - Not exhaustive; signal over noise
+Compare `last`'s `valid_from` to the cadence in `dynamic_instructions` (e.g., weekly ≈ 7 days). Then:
 
-2. **Store** a digest as `analysis` memory with tags `["perch", "zeitgeist-digest", "YYYY-MM-DD", ...topic-tags]`:
-   - 2-3 sentence summary of key signals for retrieval
+- **If insufficient time has elapsed AND no state-change event warrants an off-schedule run** (no government collapse, no war start, no major confirmation, no market shock in the last 24h):
+  - Store a brief skip log:
+    ```python
+    from scripts import remember
+    remember(
+        f"Skipped zeitgeist {today} — last was {last_date}, cadence is {cadence}, no threshold-crossing event in last 24h.",
+        type='ops',
+        tags=['perch-time', 'zeitgeist-skip', today]
+    )
+    ```
+  - **Exit the task.** Do not generate. Do not post. Do not store a zeitgeist memory.
 
-3. **Post** a discussion via `create_discussion`:
-   - Title: "Zeitgeist YYYY-MM-DD — [top 2-3 topics]"
-   - Body: The briefing in markdown
+- **If time has elapsed OR a state-change event warrants the run:** continue to Phase 1.
 
-### Formatting Rules
+This is the autonomous interpretation of the ops entry's "push back if too soon" directive. In interactive mode Muninn pushes back at Oskar; in autonomous mode it just skips with a log.
 
-- All references MUST use inline markdown links: `[Title](https://url)`. No bare URLs, no unlinked names.
-- Write like a morning briefing, not a literature review.
-- Prioritize recency: what happened in the last 24 hours.
-- If a story is developing (e.g., ongoing conflict, unfolding policy), note where it stands now vs. last coverage.
+### Phase 1: Gather context (1-2 turns)
+
+If you reached this phase, a zeitgeist is warranted. Follow `dynamic_instructions` for specifics. Standard pattern:
+
+1. Recall the previous zeitgeist(s) for delta context — what themes are running, what facts already covered. Themes that have been quiet for 2+ cycles should be retired, not padded.
+2. Web search per the search strategy in `dynamic_instructions` (weekly cadence → "this week" / "past 7 days" framing, not "today").
+3. Check Bluesky interactions on @austegard.com and @muninn.austegard.com per `dynamic_instructions`' time window.
+
+### Phase 2: Synthesize per dynamic_instructions
+
+Format, structure, themes, and inclusion threshold are all specified in `dynamic_instructions`. Follow it, not memorized defaults from your training.
+
+**The test for inclusion** (from the ops entry): would you deny or doubt this fact if Oskar mentioned it casually in a future chat? That's what belongs in the stored memory. Trajectory updates within already-tracked stories fail this test; state changes pass.
+
+### Phase 3: Store
+
+1. Store the zeitgeist as type=`world` with tags per `dynamic_instructions` (typically `['perch-time', 'zeitgeist', YYYY-MM-DD, ...theme-tags]`).
+2. Store the digest as type=`analysis` with tags `['perch', 'zeitgeist-digest', YYYY-MM-DD, ...theme-tags]`.
+3. If `dynamic_instructions` includes a posting step (Bluesky thread, discussion, etc.), execute it. **The stored memories are the primary artifact** — they update your future priors. Any posting is secondary.
+
+### Formatting rules (carry-overs)
+
+- All references use inline markdown links: `[Title](https://url)`. No bare URLs.
+- Headers/sections per `dynamic_instructions` format. Section structure matters for the delta checker.
+- Fact density over narrative. No padding.
