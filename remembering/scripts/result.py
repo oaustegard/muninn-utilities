@@ -5,6 +5,7 @@ v3.4.0: Added to provide immediate validation on field access.
 Replaces plain dicts returned by recall() to catch field name errors at access time.
 """
 
+import warnings
 from datetime import datetime, timezone
 from typing import Any, Iterator, List, Optional, Set
 from zoneinfo import ZoneInfo
@@ -107,14 +108,24 @@ class MemoryResult:
         """Attribute-style access with validation and alias resolution.
 
         v3.7.0: Common field aliases (e.g., 'content' -> 'summary') are
-        transparently resolved instead of raising errors.
+        resolved instead of raising errors.
+        Issue #15: alias resolution now emits a DeprecationWarning so the
+        wrong field name actually gets corrected at the call site rather
+        than silently persisting.
         """
         if name.startswith('_'):
             raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
-        # Resolve aliases transparently (v3.7.0)
+        # Resolve aliases with a warning so the wrong name surfaces (#15)
         if name in COMMON_MISTAKES:
-            name = COMMON_MISTAKES[name]
+            canonical = COMMON_MISTAKES[name]
+            warnings.warn(
+                f"MemoryResult.{name} is a deprecated alias for "
+                f"MemoryResult.{canonical}. Update the access site.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            name = canonical
 
         if name not in VALID_FIELDS:
             raise AttributeError(self._error_message(name, 'AttributeError'))
@@ -132,11 +143,20 @@ class MemoryResult:
         """Dict-style access with validation and alias resolution.
 
         v3.7.0: Common field aliases (e.g., 'content' -> 'summary') are
-        transparently resolved instead of raising errors.
+        resolved instead of raising errors.
+        Issue #15: alias resolution now emits a DeprecationWarning so the
+        wrong field name actually gets corrected at the call site rather
+        than silently persisting.
         """
-        # Resolve aliases transparently (v3.7.0)
         if key in COMMON_MISTAKES:
-            key = COMMON_MISTAKES[key]
+            canonical = COMMON_MISTAKES[key]
+            warnings.warn(
+                f"MemoryResult[{key!r}] is a deprecated alias for "
+                f"MemoryResult[{canonical!r}]. Update the access site.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            key = canonical
 
         if key not in VALID_FIELDS:
             raise KeyError(self._error_message(key, 'KeyError'))
@@ -183,7 +203,8 @@ class MemoryResult:
     def get(self, key: str, default: Any = None) -> Any:
         """Dict-like get() with validation and alias resolution.
 
-        v3.7.0: Common field aliases are transparently resolved.
+        v3.7.0: Common field aliases are resolved.
+        Issue #15: alias resolution now emits a DeprecationWarning.
 
         Args:
             key: Field name to access
@@ -192,9 +213,15 @@ class MemoryResult:
         Raises:
             KeyError: If key is not a valid field name
         """
-        # Resolve aliases transparently (v3.7.0)
         if key in COMMON_MISTAKES:
-            key = COMMON_MISTAKES[key]
+            canonical = COMMON_MISTAKES[key]
+            warnings.warn(
+                f"MemoryResult.get({key!r}) is a deprecated alias for "
+                f"MemoryResult.get({canonical!r}). Update the access site.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            key = canonical
         if key not in VALID_FIELDS:
             raise KeyError(self._error_message(key, 'KeyError'))
         return self._data.get(key, default)

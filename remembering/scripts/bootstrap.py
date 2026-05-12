@@ -207,13 +207,16 @@ def seed_config():
     # Ops - API reference
     config_set("remembering-api",
         """remembering skill API:
-- remember(what, type, *, tags, conf) — type required, one of: decision, world, anomaly, experience
+- remember(what, type, *, tags, conf) — type required (decision|world|anomaly|experience|interaction|procedure).
+    Returns MemoryWriteId (str subclass with .id). Aliases content/body/text -> what (#15).
 - remember_bg(...) — same args, fire-and-forget
-- recall(search, *, n, tags, type, conf) — query memories
+- recall(search, *, n, tags, type, conf) — query memories. Aliases limit/max_results/count/k -> n (#15).
 - forget(id) — soft delete
-- supersede(id, summary, type, *, tags, conf) — version a memory
+- supersede(id, summary, type, *, tags, conf) — version a memory. Aliases content/body -> summary (#15).
 - config_get(key), config_set(key, value, category), config_delete(key), config_list(category)
-- profile(), ops() — load config by category""",
+- profile(), ops() — load config by category
+
+Non-canonical kwargs translate with a DeprecationWarning. See remembering.ALIASES.""",
         "ops")
     
     # Ops - skill workflow

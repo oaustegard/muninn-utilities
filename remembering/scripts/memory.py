@@ -31,6 +31,7 @@ from .turso import (
 # Import config_get and config_set for recall-triggers management
 from .config import config_get, config_set
 from .result import wrap_results, normalize_to_utc, MemoryResult, MemoryResultList
+from .aliases import accept_aliases, MemoryWriteId
 
 # v3.2.0: Register automatic flush on exit to prevent data loss from background writes
 @atexit.register
@@ -131,13 +132,14 @@ def _write_memory(mem_id: str, what: str, type: str, now: str, conf: float,
 
 
 # @lat: [[memory#Core Operations]]
+@accept_aliases
 def remember(what: str, type: str = None, *, tags: list = None, conf: float = None,
              refs: list = None, priority: int = 0, valid_from: str = None,
              sync: bool = True, session_id: str = None,
              alternatives: list = None,
              mem_type: str = None,
              # Deprecated parameters (ignored in v2.0.0, kept for backward compat)
-             entities: list = None, importance: float = None, memory_class: str = None) -> str:
+             entities: list = None, importance: float = None, memory_class: str = None) -> "MemoryWriteId":
     """Store a memory. Type is required. Returns memory ID.
 
     Args:
@@ -287,7 +289,10 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
                 pass  # Best-effort; don't fail remember()
         threading.Thread(target=_bg_cooccurrence, daemon=True).start()
 
-    return mem_id
+    # Issue #15: return a str subclass exposing `.id` so the natural
+    # `m.id` access pattern works on the write path without breaking
+    # callers that treat the return value as a bare string.
+    return MemoryWriteId(mem_id)
 
 
 # @lat: [[memory#Background Writes]]
@@ -439,12 +444,13 @@ def clear_failed_writes() -> int:
 
 
 # @lat: [[memory#Core Operations]]
+@accept_aliases
 def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = None,
            type: str = None, conf: float = None, tag_mode: str = "any",
            strict: bool = False, session_id: str = None,
            auto_strengthen: bool = False, raw: bool = False,
            expansion_threshold: int = 3,
-           limit: int = None, fetch_all: bool = False,
+           fetch_all: bool = False,
            since: str = None, until: str = None,
            tags_all: list = None, tags_any: list = None,
            episodic: bool = False,
@@ -482,7 +488,6 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
         raw: If True, return plain dicts instead of MemoryResult objects
         expansion_threshold: Minimum results before triggering query expansion (default 3).
             Set to 0 to disable expansion entirely.
-        limit: Deprecated alias for n. If provided, overrides n.
         fetch_all: If True, retrieve all memories without search filtering.
             When True, the search parameter is ignored.
         since: Filter memories created at or after this ISO timestamp.
@@ -503,9 +508,9 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
     Returns:
         MemoryResultList of MemoryResult objects (or list of dicts if raw=True).
     """
-    # v3.7.0: Accept limit= as deprecated alias for n=
-    if limit is not None:
-        n = limit
+    # Issue #15: `limit=` used to be silently translated here. It's now handled
+    # by the @accept_aliases decorator with a DeprecationWarning so the wrong
+    # mental model surfaces at the call site instead of persisting forever.
 
     # Accept query= as alias for search= (Task.recall and many callers use 'query';
     # the underlying FTS5 search uses 'search'. Both names are first-class.)
@@ -861,6 +866,7 @@ def _query(search: str = None, tags: list = None, type: str = None,
 
 
 # @lat: [[memory#Temporal Queries]]
+@accept_aliases
 def recall_since(after: str, *, search: str = None, query: str = None, n: int = 50,
                  type: str = None, tags: list = None, tag_mode: str = "any",
                  session_id: str = None, raw: bool = False) -> MemoryResultList:
@@ -938,6 +944,7 @@ def recall_since(after: str, *, search: str = None, query: str = None, n: int = 
 
 
 # @lat: [[memory#Temporal Queries]]
+@accept_aliases
 def recall_between(after: str, before: str, *, search: str = None, query: str = None,
                    n: int = 100, type: str = None, tags: list = None,
                    tag_mode: str = "any", session_id: str = None, raw: bool = False) -> MemoryResultList:
@@ -1104,8 +1111,9 @@ def forget(memory_id: str) -> bool:
 
 
 # @lat: [[memory#Core Operations]]
+@accept_aliases
 def supersede(original_id: str, summary: str, type: str, *,
-              tags: list = None, conf: float = None) -> str:
+              tags: list = None, conf: float = None) -> "MemoryWriteId":
     """Create a patch that supersedes an existing memory. Type required. Returns new memory ID.
 
     Supports partial IDs for original_id (v5.1.0, #244).
@@ -1154,11 +1162,13 @@ def supersede(original_id: str, summary: str, type: str, *,
         except Exception:
             pass
 
-    return new_id
+    # Issue #15: wrap in MemoryWriteId for `.id` access on the write path.
+    return MemoryWriteId(new_id)
 
 
 # --- Priority adjustment functions (v2.0.0) ---
 
+@accept_aliases
 def reprioritize(memory_id: str, priority: int) -> None:
     """Adjust priority for a memory. Supports partial IDs.
 
@@ -1239,6 +1249,7 @@ def memory_histogram() -> dict:
     }
 
 
+@accept_aliases
 def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = True) -> dict:
     """Soft-delete old memories with priority at or below a threshold.
 
@@ -1285,6 +1296,7 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
     }
 
 
+@accept_aliases
 def prune_by_priority(max_priority: int = -1, dry_run: bool = True) -> dict:
     """Soft-delete memories with priority at or below a threshold.
 
@@ -1325,6 +1337,7 @@ def prune_by_priority(max_priority: int = -1, dry_run: bool = True) -> dict:
 
 # Priority adjustment with biological memory consolidation pattern (v3.3.0)
 # @lat: [[memory#Core Operations]]
+@accept_aliases
 def strengthen(memory_id: str, boost: int = 1) -> dict:
     """Strengthen a memory by incrementing its priority. Supports partial IDs.
 
@@ -1369,6 +1382,7 @@ def strengthen(memory_id: str, boost: int = 1) -> dict:
 
 
 # @lat: [[memory#Core Operations]]
+@accept_aliases
 def weaken(memory_id: str, drop: int = 1) -> dict:
     """Weaken a memory by decrementing its priority. Supports partial IDs.
 
@@ -1407,6 +1421,7 @@ def weaken(memory_id: str, drop: int = 1) -> dict:
 # --- Batch APIs (v4.5.0, #299) ---
 
 # @lat: [[memory#Batch Operations]]
+@accept_aliases
 def recall_batch(queries: list, *, n: int = 10, type: str = None,
                  tags: list = None, tag_mode: str = "any",
                  conf: float = None, session_id: str = None,
@@ -1637,7 +1652,8 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
              json.dumps(item_tags or []), json.dumps([r for r in (refs or []) if r is not None]),
              priority, session_id, now, now, valid_from]
         ))
-        mem_ids.append(mem_id)
+        # Issue #15: wrap in MemoryWriteId for consistency with remember()/supersede().
+        mem_ids.append(MemoryWriteId(mem_id))
 
         if item_tags:
             all_tags.extend(item_tags)
@@ -1790,6 +1806,7 @@ def get_chain(memory_id: str, depth: int = 3) -> list:
 # --- Memory consolidation (v4.2.0, #253) ---
 
 # @lat: [[memory#Consolidation & Curation]]
+@accept_aliases
 def consolidate(*, tags: list = None, min_cluster: int = 3, dry_run: bool = True,
                 session_id: str = None) -> dict:
     """Consolidate clusters of related memories into summary memories.
@@ -2062,11 +2079,12 @@ def curate(*, dry_run: bool = True, consolidation_threshold: int = 3,
 # --- Systematized decision trace storage (v5.1.0, #297) ---
 
 # @lat: [[memory#Decision Traces]]
+@accept_aliases
 def decision_trace(choice: str, context: str, rationale: str, *,
                    alternatives: list = None, tradeoffs: str = None,
                    contraindications: str = None, tags: list = None,
                    refs: list = None, conf: float = 0.9,
-                   priority: int = 1) -> str:
+                   priority: int = 1) -> "MemoryWriteId":
     """Store a structured decision trace with standardized format.
 
     Creates a decision memory with a structured body that captures not just

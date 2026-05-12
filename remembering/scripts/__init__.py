@@ -51,6 +51,9 @@ from .result import (
     wrap_results, _normalize_memory
 )
 
+# Import alias machinery (#15: holistic kwarg/return-shape fix)
+from .aliases import accept_aliases, ALIASES, MemoryWriteId
+
 # Import hints layer (v3.4.0: proactive memory surfacing)
 from .hints import recall_hints
 
@@ -119,6 +122,8 @@ __all__ = [
     "memory_histogram", "prune_by_age", "prune_by_priority",  # retention helpers (v3.2.0)
     # v3.4.0: Type-safe results and proactive hints
     "MemoryResult", "MemoryResultList", "VALID_FIELDS", "recall_hints",
+    # #15: holistic alias/return-shape fix
+    "MemoryWriteId", "ALIASES", "accept_aliases",
     "_exec",  # v3.9.0: Raw SQL execution for utilities
     "_build_cooccurrence", "_cooccurrence_expand",  # v5.4.0: Tag co-occurrence (#383)
     "r", "q", "j", "TYPES",  # aliases & constants
