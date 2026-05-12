@@ -14,9 +14,11 @@ v5.0.0: Removed local cache dependency. All reads/writes go to Turso directly.
 from datetime import datetime, UTC
 
 from .turso import _exec
+from .aliases import accept_aliases
 
 
 # @lat: [[memory#Config System]]
+@accept_aliases
 def config_get(key: str) -> str | None:
     """Get a config value by key."""
     result = _exec("SELECT value FROM config WHERE key = ?", [key])
@@ -24,6 +26,7 @@ def config_get(key: str) -> str | None:
 
 
 # @lat: [[memory#Config System]]
+@accept_aliases
 def config_set(key: str, value: str, category: str, *,
                char_limit: int = None, read_only: bool = False,
                boot_load: bool = None) -> None:
@@ -82,6 +85,7 @@ def config_set(key: str, value: str, category: str, *,
     )
 
 
+@accept_aliases
 def config_delete(key: str) -> bool:
     """Delete a config entry.
 

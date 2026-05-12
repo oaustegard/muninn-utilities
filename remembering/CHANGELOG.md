@@ -2,6 +2,37 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.10.0] - 2026-05-12
+
+### Added
+
+- Holistic alias / return-shape fix across the public API surface (#15).
+  - `@accept_aliases` decorator + module-level `ALIASES` table translate
+    deprecated kwarg names (`max_results`, `count`, `k`, `keywords`, `types`,
+    `content`, `body`, `text`, …) to the canonical names with a
+    `DeprecationWarning`. Passing both wrong+right raises `TypeError`.
+    Applied to `recall`, `recall_since`, `recall_between`, `recall_batch`,
+    `remember`, `remember_bg`, `supersede`, `reprioritize`, `strengthen`,
+    `weaken`, `consolidate`, `prune_by_age`, `prune_by_priority`,
+    `decision_trace`, `config_get/set/delete`.
+  - `MemoryWriteId` — `str` subclass returned by `remember()` /
+    `supersede()` / `remember_batch()` / `decision_trace()`. Behaves as a
+    bare string for back-compat (equality, json, concatenation) but
+    exposes `.id` so the natural `m.id` access pattern works on the write
+    path without raising `AttributeError`.
+  - `MemoryResult` field aliases (`m.content`, `m['content']`,
+    `m.get('content')`) now emit a `DeprecationWarning` on resolution
+    instead of silently translating, surfacing the wrong field name at
+    the access site so callers actually update their mental model.
+
+### Changed
+
+- `recall()` no longer accepts a `limit=` kwarg in its signature; it is
+  now handled by the decorator with a `DeprecationWarning` instead of
+  the previous silent in-body translation.
+- `remembering-api` ops ref rewritten to document alias semantics and the
+  new return shapes; removed the stale "PENDING: Issue #262" line.
+
 ## [5.9.0] - 2026-05-12
 
 ### Added

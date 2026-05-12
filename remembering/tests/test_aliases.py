@@ -1,0 +1,465 @@
+"""Tests for the holistic kwarg/return-shape fix (issue #15).
+
+Three layers:
+
+1. ``@accept_aliases`` decorator translates deprecated kwargs to canonical
+   names and emits a ``DeprecationWarning``. Raises ``TypeError`` if both
+   the wrong and right names are passed.
+2. ``MemoryResult`` field aliases (``m.content`` → ``m.summary``) emit a
+   ``DeprecationWarning`` instead of resolving silently.
+3. ``MemoryWriteId`` — ``remember()`` / ``supersede()`` return a ``str``
+   subclass exposing ``.id`` so the natural attribute-access pattern works
+   on the write path without breaking ``str`` callers.
+
+These tests are pure — they don't touch Turso. They exercise the
+decorator and result-wrapper in isolation, plus a mocked ``remember()``
+path to validate ``MemoryWriteId`` integration.
+"""
+
+import os
+import sys
+import warnings
+from unittest.mock import patch
+
+# Ensure the scripts package is importable when running this file directly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# ── Layer 1: accept_aliases decorator ──
+
+def test_decorator_translates_kwarg_with_warning():
+    """Calling recall(limit=5) translates to n=5 and emits DeprecationWarning."""
+    from scripts.aliases import accept_aliases, ALIASES
+
+    captured = {}
+
+    # Define a dummy function with the same name `recall` so ALIASES['recall']
+    # applies. Decorator looks up the table by func.__name__.
+    @accept_aliases
+    def recall(search=None, *, n=10, tags=None, type=None):
+        captured["n"] = n
+        captured["tags"] = tags
+        captured["type"] = type
+        return n
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = recall(limit=5)
+
+    assert result == 5, "limit=5 should translate to n=5"
+    assert captured["n"] == 5
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "limit" in str(w.message)
+        for w in caught
+    ), "DeprecationWarning for 'limit' not emitted"
+    print("PASS: decorator translates limit=5 -> n=5 with DeprecationWarning")
+
+
+def test_decorator_translates_all_recall_aliases():
+    """Each ALIASES['recall'] entry translates correctly."""
+    from scripts.aliases import accept_aliases, ALIASES
+
+    @accept_aliases
+    def recall(search=None, *, n=10, tags=None, type=None):
+        return {"n": n, "tags": tags, "type": type}
+
+    cases = [
+        ({"max_results": 7}, "n", 7),
+        ({"count": 3}, "n", 3),
+        ({"k": 4}, "n", 4),
+        ({"keywords": ["a", "b"]}, "tags", ["a", "b"]),
+        ({"types": "decision"}, "type", "decision"),
+    ]
+    for kwargs, expected_key, expected_val in cases:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            result = recall(**kwargs)
+        assert result[expected_key] == expected_val, (
+            f"recall({kwargs}) did not translate to {expected_key}={expected_val}"
+        )
+    print("PASS: decorator translates all recall aliases")
+
+
+def test_decorator_raises_typeerror_on_both_names():
+    """recall(limit=5, n=10) raises TypeError so callers don't get silent wins."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def recall(search=None, *, n=10):
+        return n
+
+    try:
+        recall(limit=5, n=10)
+    except TypeError as e:
+        assert "limit" in str(e) and "n" in str(e), f"unexpected message: {e}"
+        print("PASS: decorator raises TypeError when both names passed")
+        return
+    assert False, "Expected TypeError when both 'limit' and 'n' are passed"
+
+
+def test_decorator_passes_through_canonical_kwargs():
+    """No warning fires for canonical kwargs."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def remember(what, type=None, *, tags=None):
+        return (what, type, tags)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = remember("hello", type="world", tags=["t"])
+
+    assert result == ("hello", "world", ["t"])
+    deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert not deprecation_warnings, (
+        f"Did not expect deprecation warnings for canonical call, got: "
+        f"{[str(w.message) for w in deprecation_warnings]}"
+    )
+    print("PASS: decorator passes through canonical kwargs cleanly")
+
+
+def test_decorator_translates_remember_content_to_what():
+    """remember(content='x') translates to remember(what='x') with warning."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def remember(what, type=None, *, tags=None):
+        return what
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = remember(content="hello", type="world")
+
+    assert result == "hello", "content=hello should translate to what=hello"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "content" in str(w.message)
+        for w in caught
+    )
+    print("PASS: remember(content=) -> remember(what=) with warning")
+
+
+def test_decorator_translates_supersede_content_to_summary():
+    """supersede(id, content='x') translates content -> summary."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def supersede(original_id, summary, type, *, tags=None):
+        return summary
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        # Pass summary as content kwarg; should land on summary positional param
+        result = supersede("abc-123", content="new text", type="world")
+
+    assert result == "new text"
+    print("PASS: supersede(content=) -> supersede(summary=) translation works")
+
+
+def test_decorator_no_aliases_returns_func_unchanged():
+    """Functions without ALIASES entries are pass-through (no wrapper overhead)."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def nonexistent_function_no_aliases(x):
+        return x
+
+    # Decorator should be a no-op for functions without ALIASES entries —
+    # in our impl, the decorator just returns the original function.
+    assert nonexistent_function_no_aliases(42) == 42
+    print("PASS: no-aliases function is pass-through")
+
+
+# ── Layer 2: MemoryResult field aliases warn ──
+
+def test_memory_result_attr_alias_warns():
+    """m.content emits DeprecationWarning, resolves to m.summary."""
+    from scripts.result import MemoryResult
+
+    m = MemoryResult({"id": "abc", "summary": "hello", "type": "world"})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        value = m.content
+
+    assert value == "hello", f"m.content should resolve to m.summary, got {value!r}"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "content" in str(w.message)
+        for w in caught
+    ), "m.content should emit DeprecationWarning"
+    print("PASS: MemoryResult.content emits DeprecationWarning and resolves to summary")
+
+
+def test_memory_result_item_alias_warns():
+    """m['content'] emits DeprecationWarning, resolves to m['summary']."""
+    from scripts.result import MemoryResult
+
+    m = MemoryResult({"id": "abc", "summary": "hello", "type": "world"})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        value = m["content"]
+
+    assert value == "hello"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "content" in str(w.message)
+        for w in caught
+    )
+    print("PASS: m['content'] emits DeprecationWarning")
+
+
+def test_memory_result_get_alias_warns():
+    """m.get('content') emits DeprecationWarning, resolves to m.get('summary')."""
+    from scripts.result import MemoryResult
+
+    m = MemoryResult({"id": "abc", "summary": "hello", "type": "world"})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        value = m.get("content")
+
+    assert value == "hello"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "content" in str(w.message)
+        for w in caught
+    )
+    print("PASS: m.get('content') emits DeprecationWarning")
+
+
+def test_memory_result_canonical_field_no_warn():
+    """m.summary (canonical name) does not emit DeprecationWarning."""
+    from scripts.result import MemoryResult
+
+    m = MemoryResult({"id": "abc", "summary": "hello", "type": "world"})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _ = m.summary
+        _ = m["id"]
+        _ = m.get("type")
+
+    deps = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert not deps, f"Canonical fields should not warn, got: {[str(w.message) for w in deps]}"
+    print("PASS: canonical MemoryResult fields don't warn")
+
+
+# ── Layer 3: MemoryWriteId behaves as str with .id ──
+
+def test_memory_write_id_is_str_subclass():
+    """MemoryWriteId is a str — equality, hashing, json work as expected."""
+    from scripts.aliases import MemoryWriteId
+    import json
+
+    m = MemoryWriteId("550e8400-e29b-41d4-a716-446655440000")
+
+    assert isinstance(m, str)
+    assert m == "550e8400-e29b-41d4-a716-446655440000"
+    assert hash(m) == hash("550e8400-e29b-41d4-a716-446655440000")
+    assert json.dumps(m) == '"550e8400-e29b-41d4-a716-446655440000"'
+    assert len(m) == 36
+    print("PASS: MemoryWriteId is a true str subclass")
+
+
+def test_memory_write_id_exposes_dot_id():
+    """m.id returns the string itself — fixes the `m.id` access pattern."""
+    from scripts.aliases import MemoryWriteId
+
+    raw = "550e8400-e29b-41d4-a716-446655440000"
+    m = MemoryWriteId(raw)
+
+    assert m.id == raw
+    assert m.id is not None
+    print("PASS: MemoryWriteId.id returns the underlying string")
+
+
+def test_memory_write_id_repr():
+    """repr is distinguishable from bare str."""
+    from scripts.aliases import MemoryWriteId
+
+    m = MemoryWriteId("abc")
+    assert "MemoryWriteId" in repr(m)
+    print("PASS: MemoryWriteId.__repr__ surfaces the wrapper")
+
+
+def test_remember_returns_memory_write_id():
+    """remember() integration: returns MemoryWriteId, .id accessible."""
+    from scripts.aliases import MemoryWriteId
+
+    # Patch the inner _write_memory to avoid Turso. We exercise the public
+    # remember() path end-to-end so the return-shape change is verified
+    # at the actual API boundary, not just on the helper.
+    with patch("scripts.memory._write_memory"), \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"):
+        from scripts.memory import remember
+
+        result = remember("test memory", "world", tags=["t"])
+
+    assert isinstance(result, MemoryWriteId), (
+        f"remember() should return MemoryWriteId, got {type(result).__name__}"
+    )
+    assert isinstance(result, str), "MemoryWriteId must remain a str"
+    assert result.id == str(result)
+    # The id is a UUID, so it's 36 chars with 4 hyphens
+    assert len(result) == 36
+    print("PASS: remember() returns MemoryWriteId with .id accessible")
+
+
+def test_remember_back_compat_as_string():
+    """remember()'s return still works in str contexts (back-compat)."""
+    with patch("scripts.memory._write_memory"), \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"):
+        from scripts.memory import remember
+
+        mem_id = remember("test", "world")
+
+    # Equality with bare string
+    assert mem_id == str(mem_id)
+    # Concatenation
+    assert ("prefix:" + mem_id).startswith("prefix:")
+    # Use in f-string
+    assert f"id={mem_id}".startswith("id=")
+    print("PASS: remember() return value works as a plain string")
+
+
+def test_remember_content_alias_works():
+    """remember(content='x') translates to what='x' through the decorator."""
+    with patch("scripts.memory._write_memory") as mock_write, \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"):
+        from scripts.memory import remember
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            mem_id = remember(content="hello", type="world")
+
+    # Verify _write_memory was called with what='hello'
+    args, _ = mock_write.call_args
+    # _write_memory(mem_id, what, type, now, conf, tags, refs, priority, valid_from, session_id)
+    assert args[1] == "hello", f"what should be 'hello', got {args[1]!r}"
+    assert args[2] == "world", f"type should be 'world', got {args[2]!r}"
+    print("PASS: remember(content='hello') translates to what='hello' through decorator")
+
+
+def test_recall_limit_alias_warns_then_translates():
+    """Calling recall(limit=5) hits the decorator; warns; translates to n=5."""
+    # Patch the Turso layer so recall() doesn't hit the network.
+    with patch("scripts.memory._fts5_search", return_value=[]) as mock_fts5, \
+         patch("scripts.memory._retry_with_backoff", side_effect=lambda fn, **kw: fn()):
+        from scripts.memory import recall
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            recall("test query", limit=5)
+
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "limit" in str(w.message)
+        for w in caught
+    ), "recall(limit=) should warn"
+    # _fts5_search should have been called with n=5
+    _, kwargs = mock_fts5.call_args
+    assert kwargs.get("n") == 5, f"recall(limit=5) did not propagate as n=5: {kwargs}"
+    print("PASS: recall(limit=5) warns and translates to n=5")
+
+
+# ── Smoke: ALIASES table sanity ──
+
+def test_aliases_table_no_self_referential_entries():
+    """No wrong→right entry maps a name to itself (would loop)."""
+    from scripts.aliases import ALIASES
+
+    for fname, mapping in ALIASES.items():
+        for wrong, right in mapping.items():
+            assert wrong != right, (
+                f"ALIASES[{fname!r}][{wrong!r}] maps to itself"
+            )
+    print("PASS: ALIASES table has no self-referential entries")
+
+
+def test_aliases_table_covers_issue_15_examples():
+    """ALIASES covers the specific examples called out in issue #15."""
+    from scripts.aliases import ALIASES
+
+    # Issue #15 examples for recall
+    for wrong in ("max_results", "count", "k", "limit", "keywords", "types"):
+        assert wrong in ALIASES["recall"], (
+            f"ALIASES['recall'] missing {wrong!r} (issue #15)"
+        )
+
+    # Issue #15 examples for remember
+    for wrong in ("content", "body", "text", "keywords"):
+        assert wrong in ALIASES["remember"], (
+            f"ALIASES['remember'] missing {wrong!r} (issue #15)"
+        )
+
+    # Issue #15 examples for supersede
+    for wrong in ("content", "body"):
+        assert wrong in ALIASES["supersede"], (
+            f"ALIASES['supersede'] missing {wrong!r} (issue #15)"
+        )
+
+    # Canonical targets
+    assert ALIASES["recall"]["max_results"] == "n"
+    assert ALIASES["recall"]["keywords"] == "tags"
+    assert ALIASES["recall"]["types"] == "type"
+    assert ALIASES["remember"]["content"] == "what"
+    assert ALIASES["supersede"]["content"] == "summary"
+
+    print("PASS: ALIASES covers all examples called out in issue #15")
+
+
+# ── Export surface ──
+
+def test_public_exports():
+    """scripts.__init__ exports MemoryWriteId, ALIASES, accept_aliases."""
+    import scripts
+
+    assert "MemoryWriteId" in scripts.__all__
+    assert "ALIASES" in scripts.__all__
+    assert "accept_aliases" in scripts.__all__
+
+    from scripts import MemoryWriteId, ALIASES, accept_aliases  # noqa: F401
+    print("PASS: aliases module exports surface correctly")
+
+
+if __name__ == "__main__":
+    tests = [
+        # Layer 1: decorator
+        test_decorator_translates_kwarg_with_warning,
+        test_decorator_translates_all_recall_aliases,
+        test_decorator_raises_typeerror_on_both_names,
+        test_decorator_passes_through_canonical_kwargs,
+        test_decorator_translates_remember_content_to_what,
+        test_decorator_translates_supersede_content_to_summary,
+        test_decorator_no_aliases_returns_func_unchanged,
+        # Layer 2: field aliases
+        test_memory_result_attr_alias_warns,
+        test_memory_result_item_alias_warns,
+        test_memory_result_get_alias_warns,
+        test_memory_result_canonical_field_no_warn,
+        # Layer 3: MemoryWriteId
+        test_memory_write_id_is_str_subclass,
+        test_memory_write_id_exposes_dot_id,
+        test_memory_write_id_repr,
+        test_remember_returns_memory_write_id,
+        test_remember_back_compat_as_string,
+        test_remember_content_alias_works,
+        test_recall_limit_alias_warns_then_translates,
+        # Sanity
+        test_aliases_table_no_self_referential_entries,
+        test_aliases_table_covers_issue_15_examples,
+        test_public_exports,
+    ]
+    failed = []
+    for t in tests:
+        try:
+            t()
+        except Exception as e:
+            print(f"FAIL {t.__name__}: {e}")
+            failed.append(t.__name__)
+            import traceback
+            traceback.print_exc()
+    print()
+    print(f"Ran {len(tests)} tests, {len(failed)} failed")
+    if failed:
+        sys.exit(1)
