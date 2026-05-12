@@ -2,6 +2,14 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.9.0] - 2026-05-12
+
+### Added
+
+- `remember()` accepts `mem_type` as an alias for `type` (#640). The `type` kwarg
+  collides with the Python builtin, so the more Pythonic-feeling `mem_type` was
+  being typed repeatedly and silently failing. Passing both raises ValueError.
+
 ## [5.8.0] - 2026-05-08
 
 ### Added

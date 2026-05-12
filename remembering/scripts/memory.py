@@ -131,17 +131,20 @@ def _write_memory(mem_id: str, what: str, type: str, now: str, conf: float,
 
 
 # @lat: [[memory#Core Operations]]
-def remember(what: str, type: str, *, tags: list = None, conf: float = None,
+def remember(what: str, type: str = None, *, tags: list = None, conf: float = None,
              refs: list = None, priority: int = 0, valid_from: str = None,
              sync: bool = True, session_id: str = None,
              alternatives: list = None,
+             mem_type: str = None,
              # Deprecated parameters (ignored in v2.0.0, kept for backward compat)
              entities: list = None, importance: float = None, memory_class: str = None) -> str:
     """Store a memory. Type is required. Returns memory ID.
 
     Args:
         what: Memory content/summary
-        type: Memory type (decision, world, anomaly, experience)
+        type: Memory type (decision, world, anomaly, experience). Alias: `mem_type`
+            (accepted because the parameter name `type` shadows the Python builtin
+            and the kwarg `mem_type` is frequently typed by mistake).
         tags: Optional list of tags
         conf: Optional confidence score (0.0-1.0)
         refs: Optional list of referenced memory IDs. Citation/provenance only —
@@ -171,7 +174,13 @@ def remember(what: str, type: str, *, tags: list = None, conf: float = None,
     v4.2.0: Added alternatives parameter for decision memories (#254).
     v5.7.0 (#issue-refs-no-auto-supersede): refs is citation-only — referenced memories
         are no longer auto-flagged is_superseded=1. Use supersede() for revision semantics.
+    v5.9.0 (#640): accept `mem_type` as alias for `type` to absorb the recurring
+        LLM-side typo where the builtin-shadowing `type` kwarg gets rendered as `mem_type`.
     """
+    if type is not None and mem_type is not None:
+        raise ValueError("Pass type= or mem_type=, not both")
+    if type is None:
+        type = mem_type
     if type not in TYPES:
         raise ValueError(f"Invalid type '{type}'. Must be one of: {', '.join(sorted(TYPES))}")
 
