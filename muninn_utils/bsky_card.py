@@ -161,6 +161,82 @@ def _byte_offsets(text, char_start, matched_text):
     return len(prefix_bytes), len(prefix_bytes) + len(matched_bytes)
 
 
+# ── Markdown Link Parsing ──────────────────────────────────────────
+
+_MARKDOWN_LINK_RE = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+
+
+def parse_markdown_links(text):
+    """Strip `[displayed](url)` markdown links and emit facet#link entries.
+
+    Returns `(stripped_text, facets)`. The stripped text has each markdown
+    span replaced by its displayed-text only; the URL lives in
+    `features[].uri` of the corresponding facet and costs zero graphemes.
+
+    Byte offsets in `facets` reference the *stripped* text, so they can be
+    concatenated with `compute_facets(stripped_text)` (and any optional
+    URL append) without re-shifting.
+    """
+    facets = []
+    out_parts = []
+    pos = 0
+    byte_offset = 0
+    for m in _MARKDOWN_LINK_RE.finditer(text):
+        before = text[pos:m.start()]
+        out_parts.append(before)
+        byte_offset += len(before.encode("utf-8"))
+
+        link_text = m.group(1)
+        link_url = m.group(2)
+        link_bytes = link_text.encode("utf-8")
+        facets.append({
+            "index": {
+                "byteStart": byte_offset,
+                "byteEnd": byte_offset + len(link_bytes),
+            },
+            "features": [{
+                "$type": "app.bsky.richtext.facet#link",
+                "uri": link_url,
+            }],
+        })
+        out_parts.append(link_text)
+        byte_offset += len(link_bytes)
+        pos = m.end()
+
+    out_parts.append(text[pos:])
+    return "".join(out_parts), facets
+
+
+def _markdown_targets(facets):
+    """Set of URIs already covered by markdown-derived facet#link entries."""
+    return {
+        feat["uri"]
+        for f in facets
+        for feat in f.get("features", [])
+        if feat.get("$type") == "app.bsky.richtext.facet#link" and "uri" in feat
+    }
+
+
+def final_text_for_post(text, url):
+    """Compute what `record.text` will be after `compose_link_post` shaping.
+
+    Mirrors the text logic in `_build_compose_graph`:
+      1. Strip `[displayed](url)` markdown into displayed-only text.
+      2. If the target `url` isn't already covered — either as a
+         markdown-link target or as a literal substring — append it on
+         a new line (backwards-compatible fallback).
+
+    Callers can use this to budget-check graphemes before invoking the
+    post, replacing a raw `bsky_text` length check that would either
+    over-reject (markdown shrinks the visible text) or under-reject
+    (the URL append used to add 89+ graphemes).
+    """
+    stripped, md_facets = parse_markdown_links(text)
+    if url not in _markdown_targets(md_facets) and url not in stripped:
+        stripped = f"{stripped}\n{url}"
+    return stripped
+
+
 # ── Embed Construction ─────────────────────────────────────────────
 
 def build_external_embed(og_tags, thumb_blob=None):
@@ -209,7 +285,14 @@ def _build_compose_graph(text, url, auth, og_tags=None):
     decides which terminal to drive — record_node alone (compose only)
     or post_node downstream (compose + post).
     """
-    if url not in text:
+    # Strip `[displayed](url)` markdown so URLs in the source text move
+    # into facets (zero graphemes) instead of being visible in record.text.
+    text, markdown_facets = parse_markdown_links(text)
+
+    # If the target url is already facet-linked via markdown — or already
+    # appears literally in the stripped text — skip the URL append. The
+    # embed card still points at it; visible text doesn't need to.
+    if url not in _markdown_targets(markdown_facets) and url not in text:
         text = f"{text}\n{url}"
 
     pre_supplied = og_tags
@@ -232,7 +315,7 @@ def _build_compose_graph(text, url, auth, og_tags=None):
 
     @task(name="facets_node")
     def facets_node():
-        return compute_facets(text)
+        return markdown_facets + compute_facets(text)
 
     @task(name="embed_node", depends_on=[upload_blob_node, fetch_og])
     def embed_node(upload_blob_node, fetch_og):
