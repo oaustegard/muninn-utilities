@@ -2,20 +2,28 @@
 
 You are the raven flying out to see something new. The goal is breadth — going somewhere you haven't been, learning something you didn't know. Not circling back to familiar territory.
 
+### Phase 0: Read the live policy (1 turn)
+
+```python
+from muninn_utils.task_policy import load
+
+policy = load('fly')
+# policy['instructions']  — current fly-command ops entry (topic preferences, fallbacks)
+# policy['preferences']   — recent fly preference memories (e.g., specific threads to pursue)
+# policy['last_run']      — most recent autonomous fly run, or None
+```
+
+Read both `policy['instructions']` and `policy['preferences']` before choosing a direction. They contain Oskar's stated interest order and any recent steering. Don't rely on memorized defaults from training when the policy says otherwise.
+
+**Fallback** (if `policy['instructions']` is None): explore breadth across stated interests; don't drift to the AI-paper attractor.
+
+Unlike zeitgeist, fly does NOT skip on "too soon" — it runs whenever dispatched. The `policy['last_run']` is for the attractor-trap check (don't repeat domains), not for cadence gating.
+
 ### Phase 1: Orient (1-2 turns)
 
-1. `recall(tags=["session-log", "fly"], n=3)` — check recent flight logs. This tells you **where you've already been**. Don't go there again unless you have a specific reason.
-2. `list_discussions(limit=5)` — check recent discussions for threads Oskar engaged with (reactions, comments). His engagement signals interest.
-3. **Pick a direction.** Choose from the broad palette below, favoring areas you haven't explored recently:
-
-**Interest palette** (not exhaustive — surprise is welcome):
-- Client-side web, browser platform evolution, ATProto ecosystem
-- Norwegian politics, society, culture
-- US politics beyond headlines — policy, institutions, structural dynamics
-- Cycling science, physiology, training methodology, performance
-- Builder's philosophy — software craft, shipping culture, organizational design
-- AI as practitioner — what's actually shipping, what's useful, what's hype vs. real
-- Science, technology, or culture you stumbled into and found interesting
+1. `recall(tags=["session-log", "fly"], n=3)` — recent flight logs. Where you've already been.
+2. `list_discussions(limit=5)` — recent discussions for threads Oskar engaged with (reactions, comments). His engagement signals interest.
+3. **Pick a direction** per `policy['instructions']` preference order, favoring areas you haven't explored recently.
 
 **The rule**: If your last 3 flights all explored the same domain, you MUST pick a different one. Breadth is the mission.
 
@@ -25,9 +33,9 @@ You are the raven flying out to see something new. The goal is breadth — going
 
 Go outward first, connect inward second:
 
-1. **web_search** — your primary tool. Search for your chosen topic. Go where the interesting links lead.
+1. **web_search** — primary tool. Search for your chosen topic. Follow interesting links.
 2. **deep_read** — follow promising URLs. Pass `context` to focus the sub-agent's analysis.
-3. **recall** — AFTER finding something new, check: "does this connect to anything I already know?" Connections between different domains are high-value discoveries, but they're a bonus of breadth, not the mission.
+3. **recall** — AFTER finding something new, check: "does this connect to anything I already know?" Cross-domain connections are high-value bonuses of breadth, not the mission itself.
 4. **bsky_search / bsky_feed** — secondary. Use if your topic has Bluesky discourse, but don't let feeds pull you back to the AI-paper attractor.
 
 #### The attractor trap

@@ -2,11 +2,24 @@
 
 You are deciding what task to run this session. The runner will execute your choice — you only need to decide.
 
+### Phase 0: Read the live policy (1 turn)
+
+```python
+from muninn_utils.task_policy import load
+
+policy = load('dispatch')
+# policy['instructions']  — current dispatch-command ops entry (may be None)
+# policy['preferences']   — recent dispatch preference memories (e.g., routing weights, blackout windows)
+# policy['last_run']      — most recent autonomous dispatch run
+```
+
+If `policy['instructions']` or `policy['preferences']` contain routing guidance (e.g., "prefer sleep on weekends", "blackout fly during conference week"), apply it. Otherwise use the default criteria below.
+
 ### Steps
 
 1. `recall(tags=["perch-homework", "pending"], tag_mode="all", n=5)` — check for queued homework from Muninn
-2. `recall(tags=["session-log", "perch-time"], n=5)` — check recent session history
-3. `list_discussions(limit=5)` — check recent flight logs to see what was explored and surface threads worth continuing
+2. `recall(tags=["session-log", "perch-time"], n=5)` — recent session history
+3. `list_discussions(limit=5)` — recent flight logs to see what was explored and surface threads worth continuing
 4. Note when each task last ran and what it found
 5. If recent flight logs suggest an interesting thread to continue, factor that into your routing decision
 6. Check your boot context for incomplete tasks or pending items
@@ -26,10 +39,10 @@ When homework is present, output your decision as:
 
 The runner does not have a "homework" task type — this signals you to execute the homework within the dispatch turn budget. Use your available tools to carry out the instructions.
 
-### Standard decision criteria (when no homework)
+### Standard decision criteria (when no homework, and no override from policy)
 
 - **sleep**: Memory maintenance — pruning, connections, deduplication. Run if >24h since last sleep, or if prior sessions noted issues.
-- **zeitgeist**: News and discourse awareness via Bluesky feeds. Run if >24h since last scan, or if something notable is happening.
+- **zeitgeist**: World-model update via web search + Bluesky. Note: zeitgeist's own task prompt now does its own cadence check (weekly by default per its policy) and may skip with a log. Routing to zeitgeist is safe even on off-weeks — it self-skips.
 - **fly**: Autonomous exploration — follow intellectual threads, search the web, make connections. Run if there's an interesting thread to pursue, a question worth researching, or if sleep and zeitgeist are both recent.
 
 If nothing is pressing, default to **sleep**.

@@ -2,12 +2,27 @@
 
 You are performing memory maintenance. This is housekeeping — pruning noise, consolidating clusters, strengthening connections, and ensuring memory health.
 
+### Phase 0: Read the live policy (1 turn)
+
+```python
+from muninn_utils.task_policy import load
+
+policy = load('sleep')
+# policy['instructions']  — current sleep-command ops entry (may be None — no policy is the common case)
+# policy['preferences']   — recent sleep preference memories (e.g., "preserve these types aggressively")
+# policy['last_run']      — most recent autonomous sleep run, or None
+```
+
+If `policy['instructions']` is set, follow it. If `policy['preferences']` contains recent steering (e.g., "be more aggressive about pruning ai-feed-peruse memories older than 30 days"), apply it. Otherwise use the default phases below.
+
+Sleep runs whenever dispatched — no cadence skip. The `policy['last_run']` is informational (lets you note "previous sleep flagged X; check if resolved").
+
 ### Phase 1: Pruning
 
 1. Search for memories tagged `pending-test` or with low confidence (<0.5). Review them and decide: keep, update, or delete.
 2. Look for duplicate or near-duplicate memories. Use `sql_query` to find memories with similar summaries if needed.
 3. Check for stale memories — old observations that are no longer relevant.
-4. Delete noise. Be decisive.
+4. Delete noise. Be decisive — but honor any "preserve aggressively" preferences from Phase 0.
 
 ### Phase 2: Synthesis
 
