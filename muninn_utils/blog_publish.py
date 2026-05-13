@@ -504,11 +504,32 @@ def publish_and_announce(path, content, bsky_text, auth,
     flow builds — raises ValueError on the first failed invariant so nothing
     commits. Set False to skip (e.g. for non-blog pages with different shape).
     See issue oaustegard/muninn-utilities#20.
+
+    The bsky-grapheme budget is also checked pre-commit (#24): if
+    `bsky_text` is supplied, `final_text_for_post(bsky_text, url)` must fit
+    BSKY_LIMIT before any commit lands. The detached belt-and-suspenders
+    gate inside the flow stays, but the structural fix is to fail before
+    publish_page commits anything.
     """
     if validate_html:
         validate_blog_html(content, repo)
 
     url = f"{site_base}/{path}"
+
+    # Pre-commit bsky budget gate (#24). Run BEFORE the flow builds so a
+    # budget violation blocks the page commit, not just the announce leg.
+    # Mirrors must_be_under_bsky_limit (below) — measures the post-parse
+    # record.text that AT Proto actually counts (markdown stripped, URL
+    # appended if not already linked). Same pre-flight raise shape as
+    # validate_blog_html: no commits land if this fires.
+    if bsky_text is not None:
+        composed = final_text_for_post(bsky_text, url)
+        if not _bsky_fits(composed):
+            raise ValueError(
+                f"bsky_text (after markdown strip + URL append) exceeds "
+                f"{BSKY_LIMIT} graphemes — would be rejected by AT Proto. "
+                "Trim bsky_text before calling, or use bsky_limit.truncate()."
+            )
 
     @task(name="publish_page_node")
     def publish_page_node():
