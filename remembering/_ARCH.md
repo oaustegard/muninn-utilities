@@ -107,7 +107,7 @@ boot()
 ### Write Path (remember)
 
 ```
-remember(what, type, ...)
+remember(summary, type, ...)
   ├─ Validate type ∈ TYPES
   ├─ Generate UUID, timestamp
   ├─ if sync=True: _write_memory()        Blocking HTTP POST to Turso

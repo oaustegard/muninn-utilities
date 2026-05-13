@@ -73,28 +73,32 @@ ALIASES: dict[str, dict[str, str]] = {
         "keywords": "tags",
         "types": "type",
     },
-    # remember family — `what` is the canonical content slot
+    # remember family — `summary` is the canonical content slot, matching
+    # supersede() and the MemoryResult read side. `what` was canonical for
+    # a brief window; reverted in #17 because the surface had already
+    # settled on `summary` everywhere else and `remember(summary=...)` was
+    # the natural call shape callers reached for, then got warned about.
     "remember": {
-        "content": "what",
-        "body": "what",
-        "text": "what",
-        "summary": "what",   # supersede uses `summary`; collision-friendly remap
+        "content": "summary",
+        "body": "summary",
+        "text": "summary",
+        "what": "summary",
         "keywords": "tags",
     },
     "remember_bg": {
-        "content": "what",
-        "body": "what",
-        "text": "what",
-        "summary": "what",
+        "content": "summary",
+        "body": "summary",
+        "text": "summary",
+        "what": "summary",
         "keywords": "tags",
     },
-    # supersede uses `summary` as its content slot (yes, it's inconsistent
-    # with `remember.what` — preserving back-compat). Translate `content`/`body`.
+    # supersede uses `summary` as its content slot, matching remember() and
+    # MemoryResult.summary. Translate other common write-side names.
     "supersede": {
         "content": "summary",
         "body": "summary",
         "text": "summary",
-        "what": "summary",   # opposite direction from remember(), matches caller intent
+        "what": "summary",
         "keywords": "tags",
     },
     # priority adjustment helpers

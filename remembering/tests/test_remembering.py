@@ -557,8 +557,8 @@ def test_remember_batch():
     from scripts import remember_batch, recall, forget
 
     ids = remember_batch([
-        {"what": "Batch item 1 v5", "type": "world", "tags": ["batch-test-v5"]},
-        {"what": "Batch item 2 v5", "type": "decision", "tags": ["batch-test-v5"]},
+        {"summary": "Batch item 1 v5", "type": "world", "tags": ["batch-test-v5"]},
+        {"summary": "Batch item 2 v5", "type": "decision", "tags": ["batch-test-v5"]},
     ])
 
     assert len(ids) == 2
@@ -581,9 +581,9 @@ def test_remember_batch_validation():
     from scripts import remember_batch
 
     ids = remember_batch([
-        {"what": "Valid", "type": "world"},
-        {"what": "", "type": ""},  # Missing required fields
-        {"what": "Valid 2", "type": "invalid-type"},  # Invalid type
+        {"summary": "Valid", "type": "world"},
+        {"summary": "", "type": ""},  # Missing required fields
+        {"summary": "Valid 2", "type": "invalid-type"},  # Invalid type
     ])
 
     assert isinstance(ids[0], str)  # First should succeed
