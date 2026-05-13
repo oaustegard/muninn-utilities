@@ -48,7 +48,8 @@ from .memory import (
 from .result import (
     MemoryResult, MemoryResultList,
     VALID_FIELDS, COMMON_MISTAKES,
-    wrap_results, _normalize_memory
+    wrap_results, _normalize_memory,
+    _format_relative_age,  # issue #19: human-readable duration helper
 )
 
 # Import alias machinery (#15: holistic kwarg/return-shape fix)

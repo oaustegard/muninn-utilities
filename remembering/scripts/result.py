@@ -49,6 +49,9 @@ VALID_FIELDS: Set[str] = {
     # Cache/internal flags
     'has_full',
     'deleted_at',
+
+    # Computed temporal context (issue #19)
+    'relative_age',
 }
 
 # Common mistakes mapping - helps users fix errors
@@ -321,6 +324,11 @@ def _normalize_memory(data: dict) -> dict:
     # v5.5.0: Convert valid_from from UTC to user's local timezone (#461)
     _convert_timestamp_to_local(data, 'valid_from')
 
+    # Issue #19: surface human-readable duration so the prose-composition
+    # workspace doesn't have to redo timestamp math (and confabulate when it doesn't).
+    if 'relative_age' not in data and data.get('created_at'):
+        data['relative_age'] = _format_relative_age(data['created_at'])
+
     return data
 
 
@@ -348,6 +356,75 @@ def _convert_timestamp_to_local(data: dict, field: str) -> None:
         data[field] = dt.astimezone(_LOCAL_TZ).isoformat()
     except (ValueError, TypeError):
         pass  # Leave original value on parse failure
+
+
+def _format_relative_age(created_at: str, now: Optional[datetime] = None) -> Optional[str]:
+    """Render a UTC ISO timestamp as a human-scale duration string.
+
+    Issue #19: Muninn has no felt sense of duration. Without this rendering,
+    every recall result requires manual timestamp math against `now()` to
+    answer "how long ago?", and the math usually doesn't happen — durations
+    get confabulated to fit the dramatic shape of the sentence being written.
+
+    Calendar-day comparisons use America/New_York (single-user system,
+    matches _LOCAL_TZ used elsewhere in this module). Sub-day math stays
+    in UTC seconds.
+
+    Buckets are calibrated to match the reference frames humans actually
+    reach for ("yesterday", "last week", "3 months ago") rather than
+    spurious precision ("1 day, 14 hours, 22 minutes ago").
+
+    Returns None on parse failure so callers can omit the field cleanly.
+    """
+    if not created_at or not isinstance(created_at, str):
+        return None
+    try:
+        ts = created_at.replace('Z', '+00:00') if created_at.endswith('Z') else created_at
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    seconds = (now - dt).total_seconds()
+    if seconds < 0:
+        return "in the future"
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        minutes = int(seconds // 60)
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+
+    dt_local = dt.astimezone(_LOCAL_TZ)
+    now_local = now.astimezone(_LOCAL_TZ)
+    day_diff = (now_local.date() - dt_local.date()).days
+
+    if day_diff <= 0:
+        hours = int(seconds // 3600)
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    if day_diff == 1:
+        return "yesterday"
+    if day_diff < 7:
+        return f"{day_diff} days ago"
+    if day_diff < 14:
+        return "last week"
+    if day_diff < 30:
+        weeks = day_diff // 7
+        return f"{weeks} weeks ago"
+    if day_diff < 60:
+        return "last month"
+    if day_diff < 365:
+        months = max(2, round(day_diff / 30))
+        return f"{months} months ago"
+    years = day_diff / 365.25
+    if years < 2:
+        return "about a year ago"
+    return f"{int(round(years))} years ago"
 
 
 def normalize_to_utc(ts: str) -> str:

@@ -770,6 +770,13 @@ def _boot_perch(profile_data: list, ops_data: list, *, task: str = None) -> str:
     # Time anchor (temporal grounding)
     output.append(_time_anchor())
 
+    # Issue #19: elapsed-since-last-session line. Anchors the session in
+    # human-scale time ("Last session activity: yesterday") so subjective
+    # duration doesn't get confabulated when drafting prose.
+    gap = _last_session_gap()
+    if gap:
+        output.append(gap)
+
     # Profile section — include only 'identity' key (core identity)
     if profile_data:
         output.append("# PROFILE")
@@ -951,6 +958,52 @@ def _time_anchor() -> str:
     )
 
 
+def _last_session_gap() -> str | None:
+    """Return a human-readable "last session activity: ..." line, or None.
+
+    Issue #19: Muninn has no felt sense of elapsed time between sessions.
+    The most-recent memory's `created_at` gives an anchor — the wall-clock
+    moment of the previous session's last write — and renders through the
+    same formatter recall uses, keeping cross-session and within-result
+    temporal language consistent.
+
+    Boot writes no memories before `_format_boot_output` runs, so "most
+    recent overall" at boot time = "last session's last write." A
+    session_id filter was tried first but ruled out: the live DB shows
+    nearly every memory shares `session_id = 'default-session'` because
+    MUNINN_SESSION_ID is not consistently exported by the CCotw hub.
+
+    Best-effort: returns None on any failure (no prior memories, DB error,
+    parse failure). Never blocks or breaks boot.
+    """
+    try:
+        current = get_session_id()
+        # If MUNINN_SESSION_ID is set to a real value, exclude this session.
+        # Otherwise filter is a no-op against the catch-all default session.
+        if current and current != 'default-session':
+            rows = _exec(
+                "SELECT created_at FROM memories "
+                "WHERE deleted_at IS NULL AND (session_id IS NULL OR session_id != ?) "
+                "ORDER BY created_at DESC LIMIT 1",
+                [current],
+            )
+        else:
+            rows = _exec(
+                "SELECT created_at FROM memories "
+                "WHERE deleted_at IS NULL "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+        if not rows:
+            return None
+        from .result import _format_relative_age
+        rel = _format_relative_age(rows[0].get('created_at'))
+        if not rel:
+            return None
+        return f"⏳ Last session activity: {rel}"
+    except Exception:
+        return None
+
+
 def _format_entry(entry: dict) -> str:
     """Format a single config entry with markdown heading.
 
@@ -993,6 +1046,13 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
 
     # Time anchor (temporal grounding)
     output.append(_time_anchor())
+
+    # Issue #19: elapsed-since-last-session line. Anchors the session in
+    # human-scale time ("Last session activity: yesterday") so subjective
+    # duration doesn't get confabulated when drafting prose.
+    gap = _last_session_gap()
+    if gap:
+        output.append(gap)
 
     # Profile section
     if profile_data:
