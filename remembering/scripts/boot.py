@@ -518,6 +518,49 @@ def _ensure_is_superseded_schema():
             pass  # Backfill best-effort; flag is self-healing on next supersede
 
 
+def _ensure_muninn_utils_pth() -> bool:
+    """Write a `.pth` file so flat sibling imports inside muninn_utils/ work
+    across fresh shells (issue #24).
+
+    The hub (boot-ccotw.sh) installs muninn_utils to ~/muninn_utils/ and adds
+    `$HOME` to `muninn-remembering.pth`. That covers package-style imports
+    (`from muninn_utils.X import Y`) but NOT flat sibling imports inside the
+    package itself (e.g. blog_publish.py:53 `from bsky_card import
+    compose_link_post, final_text_for_post`). Those need `UTIL_DIR` itself
+    on `sys.path`. `fetch_muninn_utils()` calls `sys.path.insert()`, but
+    that only affects the current Python process — next bash_tool call
+    starts a fresh shell with a fresh interpreter, and the import breaks.
+
+    Fix: drop a small `.pth` file in site-packages alongside
+    `muninn-remembering.pth`. Owned by this repo (boot.py), so it stays in
+    sync with `UTIL_DIR` regardless of what the hub does. Idempotent —
+    overwritten on each boot. Best-effort — never raises.
+
+    Returns:
+        bool: True if the pth file was written, False on any error.
+    """
+    try:
+        import sysconfig
+        site_dir = sysconfig.get_path('purelib')
+        if not site_dir or not os.path.isdir(site_dir):
+            return False
+        pth = os.path.join(site_dir, 'muninn-utils.pth')
+        # Both lines are idempotent — Python deduplicates sys.path entries
+        # added via .pth files at startup.
+        with open(pth, 'w') as f:
+            # UTIL_DIR enables flat sibling imports (`from bsky_card import ...`)
+            f.write(UTIL_DIR + "\n")
+            # UTIL_DIR's parent enables package-style imports
+            # (`from muninn_utils.X import Y`) without relying on $HOME being
+            # on path. Cheap belt-and-suspenders.
+            parent = os.path.dirname(UTIL_DIR)
+            if parent:
+                f.write(parent + "\n")
+        return True
+    except Exception:
+        return False
+
+
 def _persist_env_fallback() -> bool:
     """Persist live Turso credentials to ``~/.muninn/.env`` for cross-shell reuse.
 
@@ -686,6 +729,12 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
             }
     except Exception:
         pass  # Repo sync is best-effort; missing utilities surface as empty
+
+    # Issue #24: write muninn-utils.pth so flat sibling imports inside
+    # muninn_utils/*.py survive across fresh shells. Must run AFTER
+    # fetch_muninn_utils() so UTIL_DIR exists; safe even if the fetch
+    # failed (the pth just points at an empty dir).
+    _ensure_muninn_utils_pth()
     _mark("utilities")
 
     # Boot-time install-manifest audit (#6). Warn-quiet by default: surfaces
