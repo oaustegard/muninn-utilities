@@ -164,65 +164,64 @@ def test_when_skips_feed_update_without_feed_path(monkeypatch):
     assert result["update_sha"] == "link9999"
 
 
-def test_validate_blocks_oversize_bsky_text(monkeypatch):
-    """bsky_text > BSKY_LIMIT → announce_bsky FAILS with no createRecord call."""
+def test_pre_commit_blocks_oversize_bsky_text(monkeypatch):
+    """bsky_text > BSKY_LIMIT → ValueError pre-commit; NO commits land (#24)."""
     bc = _reset(monkeypatch)
 
     huge = "x" * (bsky_limit.BSKY_LIMIT + 1)
-    result = bp.publish_and_announce(
-        path="blog/z.html",
-        content="<html/>",  # validate_html=False below — flow shape only
-        validate_html=False,
-        bsky_text=huge,
-        auth={"access_jwt": "j", "did": "did", "handle": "h"},
-        feed_entry={"title": "Z", "summary": "..."},
-    )
 
-    # Main chain still completed.
-    assert result["commit_sha"] == "abcdef1234"
-    assert result["feed_sha"] == "feed5678"
-    # bsky never composed/posted.
-    assert bc.compose_link_post.call_count == 0
-    assert result["bsky_post"] is None
-    # link_engagement skipped (its dep failed).
+    import pytest
+    with pytest.raises(ValueError) as exc:
+        bp.publish_and_announce(
+            path="blog/z.html",
+            content="<html/>",  # validate_html=False below — flow shape only
+            validate_html=False,
+            bsky_text=huge,
+            auth={"access_jwt": "j", "did": "did", "handle": "h"},
+            feed_entry={"title": "Z", "summary": "..."},
+        )
+
+    # Error message names the budget.
+    msg = str(exc.value).lower()
+    assert "grapheme" in msg or str(bsky_limit.BSKY_LIMIT) in str(exc.value)
+
+    # No commits or posts happened — the gate fired before flow.run().
+    assert bp.publish_page.call_count == 0
+    assert bp.update_feed.call_count == 0
     assert bp.link_engagement.call_count == 0
-    # Surface in detached_failures.
-    failures = dict(result["detached_failures"])
-    assert "announce_bsky" in failures
-    assert "graphemes" in failures["announce_bsky"].lower() or \
-           str(bsky_limit.BSKY_LIMIT) in failures["announce_bsky"]
+    assert bc.compose_link_post.call_count == 0
 
 
-def test_validate_blocks_when_url_append_pushes_over_limit(monkeypatch):
+def test_pre_commit_blocks_when_url_append_pushes_over_limit(monkeypatch):
     """Raw bsky_text fits 300, but URL append pushes record.text past 300.
 
-    Pre-#11 behavior: validate measured raw `bsky_text` and let the post
-    fire, then AT Proto would reject with "grapheme too big". Post-#11:
-    validate measures `final_text_for_post(bsky_text, url)`, which
-    includes the URL append fallback. Catches the bug structurally.
+    Pre-#11: detached gate caught this AFTER page commit (post-deploy).
+    Post-#11: detached gate measured final_text_for_post() so the budget
+    violation surfaced in detached_failures, but the page still shipped.
+    Post-#24: pre-commit gate raises ValueError BEFORE anything commits.
     """
     bc = _reset(monkeypatch)
 
     # 290 graphemes — fits 300 on its own, but URL append blows past it.
     bsky_text = "x" * 290
-    result = bp.publish_and_announce(
-        path="blog/long.html",
-        content="<html/>",  # validate_html=False below — flow shape only
-        validate_html=False,
-        bsky_text=bsky_text,
-        auth={"access_jwt": "j", "did": "did", "handle": "h"},
-        feed_entry={"title": "L", "summary": "..."},
-    )
 
-    # Main chain still completed.
-    assert result["commit_sha"] == "abcdef1234"
-    # But bsky chain rejected at the validate boundary.
+    import pytest
+    with pytest.raises(ValueError) as exc:
+        bp.publish_and_announce(
+            path="blog/long.html",
+            content="<html/>",  # validate_html=False below — flow shape only
+            validate_html=False,
+            bsky_text=bsky_text,
+            auth={"access_jwt": "j", "did": "did", "handle": "h"},
+            feed_entry={"title": "L", "summary": "..."},
+        )
+
+    msg = str(exc.value).lower()
+    assert "grapheme" in msg or str(bsky_limit.BSKY_LIMIT) in str(exc.value)
+
+    # No commits — the gate fires before flow.run().
+    assert bp.publish_page.call_count == 0
     assert bc.compose_link_post.call_count == 0
-    assert result["bsky_post"] is None
-    failures = dict(result["detached_failures"])
-    assert "announce_bsky" in failures
-    assert str(bsky_limit.BSKY_LIMIT) in failures["announce_bsky"] or \
-           "graphemes" in failures["announce_bsky"].lower()
 
 
 def test_retry_until_consumes_budget_when_deploy_slow(monkeypatch):
