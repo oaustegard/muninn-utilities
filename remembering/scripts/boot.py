@@ -737,6 +737,17 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     if telemetry and len(_telemetry_marks) >= 2:
         result += _format_telemetry(_telemetry_marks)
 
+    # Issue #24: Write boot-success sentinel so downstream tooling (project
+    # instructions, post-boot scripts, manual checks) has an observable
+    # artifact for "boot completed." /tmp is per-session, so stale sentinels
+    # cannot survive across boots. Best-effort — never raises.
+    try:
+        Path('/tmp/MUNINN_BOOT_OK').write_text(
+            datetime.now(UTC).isoformat().replace('+00:00', 'Z') + '\n'
+        )
+    except Exception:
+        pass
+
     return result
 
 
@@ -797,6 +808,15 @@ def _boot_perch(profile_data: list, ops_data: list, *, task: str = None) -> str:
         task_content = _load_task_prompt(task)
         if task_content:
             output.append(f"\n# TASK\n{task_content}")
+
+    # Issue #24: sentinel also fires for perch mode — a successful slim
+    # boot is still a successful boot.
+    try:
+        Path('/tmp/MUNINN_BOOT_OK').write_text(
+            datetime.now(UTC).isoformat().replace('+00:00', 'Z') + '\n'
+        )
+    except Exception:
+        pass
 
     return '\n'.join(output)
 
