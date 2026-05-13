@@ -2,6 +2,22 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.11.0] - 2026-05-13
+
+### Changed
+
+- `remember()` / `remember_bg()` canonical content kwarg reverted to `summary`
+  (#17). When the alias layer landed in 5.10.0 the rename to `what` made the
+  same logical field "what" on write but "summary" on read (`MemoryResult.summary`,
+  `supersede(summary=...)`) — so the natural call shape `remember(summary=...)`
+  was the one that triggered the `DeprecationWarning`. With this change the
+  whole API surface uses `summary`. `what` continues to work as a deprecated
+  alias with a `DeprecationWarning`.
+- `remember_batch()` items use `"summary"` as the canonical content key;
+  `"what"` is accepted as a deprecated alias with a `DeprecationWarning`.
+- `failed_writes()` payload renames `"what"` → `"summary"` for consistency
+  with the rest of the surface; `retry_failed_writes()` reads the new key.
+
 ## [5.10.0] - 2026-05-12
 
 ### Added

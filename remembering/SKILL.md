@@ -2,7 +2,7 @@
 name: remembering
 description: Advanced memory operations reference. Basic patterns (profile loading, simple recall/remember) are in project instructions. Consult this skill for background writes, memory versioning, complex queries, edge cases, session scoping, retention management, type-safe results, proactive memory hints, GitHub access detection, autonomous curation, episodic scoring, and decision traces.
 metadata:
-  version: 5.9.0
+  version: 5.11.0
 ---
 
 # Remembering - Advanced Operations
@@ -178,9 +178,9 @@ for i, result_set in enumerate(results):
 
 # Multiple stores in one call
 ids = remember_batch([
-    {"what": "User prefers dark mode", "type": "decision", "tags": ["ui"]},
-    {"what": "Project uses React", "type": "world", "tags": ["tech"]},
-    {"what": "Found auth bug", "type": "anomaly", "conf": 0.7},
+    {"summary": "User prefers dark mode", "type": "decision", "tags": ["ui"]},
+    {"summary": "Project uses React", "type": "world", "tags": ["tech"]},
+    {"summary": "Found auth bug", "type": "anomaly", "conf": 0.7},
 ])
 ```
 

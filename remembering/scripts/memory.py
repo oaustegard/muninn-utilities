@@ -19,6 +19,7 @@ import uuid
 import threading
 import time
 import atexit
+import warnings
 from datetime import datetime, UTC
 
 from . import state
@@ -99,7 +100,7 @@ def _resolve_memory_id(memory_id: str) -> str:
     return matches[0]['id']
 
 
-def _write_memory(mem_id: str, what: str, type: str, now: str, conf: float,
+def _write_memory(mem_id: str, summary: str, type: str, now: str, conf: float,
                   tags: list, refs: list, priority: int, valid_from: str, session_id: str) -> None:
     """Internal helper: write memory to Turso (blocking).
 
@@ -118,7 +119,7 @@ def _write_memory(mem_id: str, what: str, type: str, now: str, conf: float,
         """INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
            session_id, created_at, updated_at, valid_from, access_count, last_accessed)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
-        [mem_id, type, now, what, conf,
+        [mem_id, type, now, summary, conf,
          json.dumps(tags or []), json.dumps(clean_refs),
          priority, session_id, now, now, valid_from]
     )
@@ -133,7 +134,7 @@ def _write_memory(mem_id: str, what: str, type: str, now: str, conf: float,
 
 # @lat: [[memory#Core Operations]]
 @accept_aliases
-def remember(what: str, type: str = None, *, tags: list = None, conf: float = None,
+def remember(summary: str, type: str = None, *, tags: list = None, conf: float = None,
              refs: list = None, priority: int = 0, valid_from: str = None,
              sync: bool = True, session_id: str = None,
              alternatives: list = None,
@@ -143,7 +144,9 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
     """Store a memory. Type is required. Returns memory ID.
 
     Args:
-        what: Memory content/summary
+        summary: Memory content/summary. Canonical kwarg. The decorator also
+            accepts the deprecated aliases ``what``, ``content``, ``body``, ``text``
+            and translates them with a ``DeprecationWarning``.
         type: Memory type (decision, world, anomaly, experience). Alias: `mem_type`
             (accepted because the parameter name `type` shadows the Python builtin
             and the kwarg `mem_type` is frequently typed by mistake).
@@ -178,6 +181,8 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
         are no longer auto-flagged is_superseded=1. Use supersede() for revision semantics.
     v5.9.0 (#640): accept `mem_type` as alias for `type` to absorb the recurring
         LLM-side typo where the builtin-shadowing `type` kwarg gets rendered as `mem_type`.
+    Issue #17: canonical content kwarg reverted to `summary` to match supersede()
+        and MemoryResult.summary. `what` becomes a deprecated alias (still accepted).
     """
     if type is not None and mem_type is not None:
         raise ValueError("Pass type= or mem_type=, not both")
@@ -218,12 +223,12 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
 
     if sync:
         # Blocking write to Turso
-        _write_memory(mem_id, what, type, now, conf, tags, refs, priority, valid_from, session_id)
+        _write_memory(mem_id, summary, type, now, conf, tags, refs, priority, valid_from, session_id)
     else:
         # Background write to Turso
         def _bg_write():
             try:
-                _write_memory(mem_id, what, type, now, conf, tags, refs, priority, valid_from, session_id)
+                _write_memory(mem_id, summary, type, now, conf, tags, refs, priority, valid_from, session_id)
             except Exception as e:
                 # Retry budget exhausted in the bg thread. Capture the payload
                 # so the failure is visible to callers (failed_writes()) and
@@ -232,7 +237,7 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
                 with state._failed_bg_writes_lock:
                     state._failed_bg_writes.append({
                         'mem_id': mem_id,
-                        'what': what,
+                        'summary': summary,
                         'type': type,
                         'tags': tags,
                         'refs': refs,
@@ -296,7 +301,7 @@ def remember(what: str, type: str = None, *, tags: list = None, conf: float = No
 
 
 # @lat: [[memory#Background Writes]]
-def remember_bg(what: str, type: str, *, tags: list = None, conf: float = None,
+def remember_bg(summary: str, type: str, *, tags: list = None, conf: float = None,
                 entities: list = None, refs: list = None,
                 importance: float = None, memory_class: str = None, valid_from: str = None) -> str:
     """Deprecated: Use remember(..., sync=False) instead.
@@ -309,7 +314,7 @@ def remember_bg(what: str, type: str, *, tags: list = None, conf: float = None,
     Returns:
         Memory ID (UUID)
     """
-    return remember(what, type, tags=tags, conf=conf, entities=entities, refs=refs,
+    return remember(summary, type, tags=tags, conf=conf, entities=entities, refs=refs,
                     importance=importance, memory_class=memory_class, valid_from=valid_from, sync=False)
 
 
@@ -358,7 +363,7 @@ def flush(timeout: float = 5.0) -> dict:
 def failed_writes() -> list:
     """Return list of background writes that exhausted retry budget.
 
-    Each entry is a dict with the original payload (mem_id, what, type, tags,
+    Each entry is a dict with the original payload (mem_id, summary, type, tags,
     refs, priority, valid_from, session_id, conf), plus 'error' (last error
     string) and 'failed_at' (ISO timestamp). Returns a copy — mutations to
     the returned list don't affect internal state.
@@ -368,7 +373,7 @@ def failed_writes() -> list:
 
     Example:
         for fw in failed_writes():
-            print(f"failed: {fw['what'][:50]} -- {fw['error']}")
+            print(f"failed: {fw['summary'][:50]} -- {fw['error']}")
     """
     with state._failed_bg_writes_lock:
         return list(state._failed_bg_writes)
@@ -406,7 +411,7 @@ def retry_failed_writes(timeout: float = 30.0) -> dict:
     for item in items:
         try:
             _write_memory(
-                item['mem_id'], item['what'], item['type'],
+                item['mem_id'], item['summary'], item['type'],
                 item['failed_at'],  # use failed_at as 'now' so original ordering preserved
                 item['conf'], item['tags'], item['refs'],
                 item['priority'], item['valid_from'], item['session_id'],
@@ -1561,7 +1566,8 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
 
     Args:
         items: List of dicts, each with:
-            - what (str): Memory content (required)
+            - summary (str): Memory content (required). The deprecated key
+              ``what`` is also accepted with a ``DeprecationWarning``.
             - type (str): Memory type (required)
             - tags (list): Optional tags
             - conf (float): Optional confidence
@@ -1578,13 +1584,14 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
 
     Example:
         >>> ids = remember_batch([
-        ...     {"what": "User prefers dark mode", "type": "decision", "tags": ["ui"]},
-        ...     {"what": "Project uses React", "type": "world", "tags": ["tech"]},
-        ...     {"what": "Found bug in auth", "type": "anomaly", "conf": 0.7},
+        ...     {"summary": "User prefers dark mode", "type": "decision", "tags": ["ui"]},
+        ...     {"summary": "Project uses React", "type": "world", "tags": ["tech"]},
+        ...     {"summary": "Found bug in auth", "type": "anomaly", "conf": 0.7},
         ... ])
         >>> print(f"Stored {len(ids)} memories")
 
     v4.5.0: Initial implementation (#299).
+    Issue #17: canonical item key is ``summary``; ``what`` accepted as deprecated alias.
     """
     if not items:
         return []
@@ -1598,12 +1605,21 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
     all_tags = []  # Collect tags for recall-triggers update
 
     for i, item in enumerate(items):
-        what = item.get('what')
+        # Issue #17: `summary` is canonical; `what` is a deprecated alias.
+        summary = item.get('summary')
+        if summary is None and 'what' in item:
+            warnings.warn(
+                "remember_batch(): item key 'what' is a deprecated alias for "
+                "'summary'. Translating, but update the call site.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            summary = item.get('what')
         mem_type = item.get('type')
 
         # Validate required fields
-        if not what or not mem_type:
-            mem_ids.append({"error": f"Item {i}: 'what' and 'type' are required"})
+        if not summary or not mem_type:
+            mem_ids.append({"error": f"Item {i}: 'summary' and 'type' are required"})
             continue
 
         if mem_type not in TYPES:
@@ -1648,7 +1664,7 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
             """INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
                session_id, created_at, updated_at, valid_from, access_count, last_accessed)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
-            [mem_id, mem_type, now, what, conf,
+            [mem_id, mem_type, now, summary, conf,
              json.dumps(item_tags or []), json.dumps([r for r in (refs or []) if r is not None]),
              priority, session_id, now, now, valid_from]
         ))

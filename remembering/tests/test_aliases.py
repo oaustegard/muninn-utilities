@@ -102,8 +102,8 @@ def test_decorator_passes_through_canonical_kwargs():
     from scripts.aliases import accept_aliases
 
     @accept_aliases
-    def remember(what, type=None, *, tags=None):
-        return (what, type, tags)
+    def remember(summary, type=None, *, tags=None):
+        return (summary, type, tags)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -118,24 +118,44 @@ def test_decorator_passes_through_canonical_kwargs():
     print("PASS: decorator passes through canonical kwargs cleanly")
 
 
-def test_decorator_translates_remember_content_to_what():
-    """remember(content='x') translates to remember(what='x') with warning."""
+def test_decorator_translates_remember_content_to_summary():
+    """remember(content='x') translates to remember(summary='x') with warning."""
     from scripts.aliases import accept_aliases
 
     @accept_aliases
-    def remember(what, type=None, *, tags=None):
-        return what
+    def remember(summary, type=None, *, tags=None):
+        return summary
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = remember(content="hello", type="world")
 
-    assert result == "hello", "content=hello should translate to what=hello"
+    assert result == "hello", "content=hello should translate to summary=hello"
     assert any(
         issubclass(w.category, DeprecationWarning) and "content" in str(w.message)
         for w in caught
     )
-    print("PASS: remember(content=) -> remember(what=) with warning")
+    print("PASS: remember(content=) -> remember(summary=) with warning")
+
+
+def test_decorator_translates_remember_what_to_summary():
+    """remember(what='x') translates to remember(summary='x') with warning (issue #17)."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def remember(summary, type=None, *, tags=None):
+        return summary
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = remember(what="hello", type="world")
+
+    assert result == "hello", "what=hello should translate to summary=hello"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "what" in str(w.message)
+        for w in caught
+    ), "DeprecationWarning for 'what' not emitted"
+    print("PASS: remember(what=) -> remember(summary=) with warning (issue #17)")
 
 
 def test_decorator_translates_supersede_content_to_summary():
@@ -323,7 +343,7 @@ def test_remember_back_compat_as_string():
 
 
 def test_remember_content_alias_works():
-    """remember(content='x') translates to what='x' through the decorator."""
+    """remember(content='x') translates to summary='x' through the decorator."""
     with patch("scripts.memory._write_memory") as mock_write, \
          patch("scripts.memory.config_get", return_value=None), \
          patch("scripts.memory.config_set"):
@@ -333,12 +353,86 @@ def test_remember_content_alias_works():
             warnings.simplefilter("ignore", DeprecationWarning)
             mem_id = remember(content="hello", type="world")
 
-    # Verify _write_memory was called with what='hello'
+    # Verify _write_memory was called with summary='hello' at position 1
     args, _ = mock_write.call_args
-    # _write_memory(mem_id, what, type, now, conf, tags, refs, priority, valid_from, session_id)
-    assert args[1] == "hello", f"what should be 'hello', got {args[1]!r}"
+    # _write_memory(mem_id, summary, type, now, conf, tags, refs, priority, valid_from, session_id)
+    assert args[1] == "hello", f"summary should be 'hello', got {args[1]!r}"
     assert args[2] == "world", f"type should be 'world', got {args[2]!r}"
-    print("PASS: remember(content='hello') translates to what='hello' through decorator")
+    print("PASS: remember(content='hello') translates to summary='hello' through decorator")
+
+
+def test_remember_what_alias_works():
+    """remember(what='x') translates to summary='x' through the decorator (issue #17)."""
+    with patch("scripts.memory._write_memory") as mock_write, \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"):
+        from scripts.memory import remember
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            mem_id = remember(what="hello", type="world")
+
+    args, _ = mock_write.call_args
+    assert args[1] == "hello", f"summary should be 'hello', got {args[1]!r}"
+    assert any(
+        issubclass(w.category, DeprecationWarning) and "what" in str(w.message)
+        for w in caught
+    ), "remember(what=) should warn"
+    print("PASS: remember(what='hello') translates to summary='hello' with warning (issue #17)")
+
+
+def test_remember_summary_canonical_no_warn():
+    """remember(summary='x', ...) — canonical kwarg, no DeprecationWarning (issue #17)."""
+    with patch("scripts.memory._write_memory") as mock_write, \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"):
+        from scripts.memory import remember
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            mem_id = remember(summary="hello", type="world")
+
+    args, _ = mock_write.call_args
+    assert args[1] == "hello", f"summary should be 'hello', got {args[1]!r}"
+    deps = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert not deps, (
+        f"remember(summary=...) is canonical and must not warn, got: "
+        f"{[str(w.message) for w in deps]}"
+    )
+    print("PASS: remember(summary='hello') is canonical and emits no warning (issue #17)")
+
+
+def test_remember_batch_what_alias_warns():
+    """remember_batch items with 'what' key translate to 'summary' with warning (issue #17)."""
+    with patch("scripts.memory._exec_batch") as mock_batch, \
+         patch("scripts.memory.config_get", return_value=None), \
+         patch("scripts.memory.config_set"), \
+         patch("scripts.memory.get_session_id", return_value="test-session"):
+        from scripts.memory import remember_batch
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ids = remember_batch([
+                {"what": "via deprecated alias", "type": "world"},
+                {"summary": "via canonical key", "type": "world"},
+            ])
+
+    # Both items wrote
+    assert mock_batch.called
+    statements = mock_batch.call_args[0][0]
+    assert len(statements) == 2, f"expected 2 INSERTs, got {len(statements)}"
+    # SQL params order: [mem_id, type, now, summary, conf, ...]
+    summaries = [stmt[1][3] for stmt in statements]
+    assert "via deprecated alias" in summaries
+    assert "via canonical key" in summaries
+
+    # The 'what' alias should warn; the canonical key should not.
+    what_warnings = [
+        w for w in caught
+        if issubclass(w.category, DeprecationWarning) and "what" in str(w.message)
+    ]
+    assert what_warnings, "remember_batch with item 'what' key should DeprecationWarn"
+    print("PASS: remember_batch({'what': ...}) translates to summary with warning (issue #17)")
 
 
 def test_recall_limit_alias_warns_then_translates():
@@ -386,10 +480,10 @@ def test_aliases_table_covers_issue_15_examples():
             f"ALIASES['recall'] missing {wrong!r} (issue #15)"
         )
 
-    # Issue #15 examples for remember
-    for wrong in ("content", "body", "text", "keywords"):
+    # Issue #15 examples for remember; issue #17 added `what` as a deprecated alias
+    for wrong in ("content", "body", "text", "keywords", "what"):
         assert wrong in ALIASES["remember"], (
-            f"ALIASES['remember'] missing {wrong!r} (issue #15)"
+            f"ALIASES['remember'] missing {wrong!r}"
         )
 
     # Issue #15 examples for supersede
@@ -398,14 +492,16 @@ def test_aliases_table_covers_issue_15_examples():
             f"ALIASES['supersede'] missing {wrong!r} (issue #15)"
         )
 
-    # Canonical targets
+    # Canonical targets. Issue #17: remember canonical reverted to `summary`
+    # so the whole write+read surface uses one name.
     assert ALIASES["recall"]["max_results"] == "n"
     assert ALIASES["recall"]["keywords"] == "tags"
     assert ALIASES["recall"]["types"] == "type"
-    assert ALIASES["remember"]["content"] == "what"
+    assert ALIASES["remember"]["content"] == "summary"
+    assert ALIASES["remember"]["what"] == "summary"
     assert ALIASES["supersede"]["content"] == "summary"
 
-    print("PASS: ALIASES covers all examples called out in issue #15")
+    print("PASS: ALIASES covers all examples called out in issues #15 and #17")
 
 
 # ── Export surface ──
@@ -429,7 +525,8 @@ if __name__ == "__main__":
         test_decorator_translates_all_recall_aliases,
         test_decorator_raises_typeerror_on_both_names,
         test_decorator_passes_through_canonical_kwargs,
-        test_decorator_translates_remember_content_to_what,
+        test_decorator_translates_remember_content_to_summary,
+        test_decorator_translates_remember_what_to_summary,
         test_decorator_translates_supersede_content_to_summary,
         test_decorator_no_aliases_returns_func_unchanged,
         # Layer 2: field aliases
@@ -444,6 +541,9 @@ if __name__ == "__main__":
         test_remember_returns_memory_write_id,
         test_remember_back_compat_as_string,
         test_remember_content_alias_works,
+        test_remember_what_alias_works,
+        test_remember_summary_canonical_no_warn,
+        test_remember_batch_what_alias_warns,
         test_recall_limit_alias_warns_then_translates,
         # Sanity
         test_aliases_table_no_self_referential_entries,
