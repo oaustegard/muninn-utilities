@@ -25,22 +25,32 @@ Read `policy['instructions']` and `policy['preferences']` before generating anyt
 days = days_since_last_run(policy)
 ```
 
-Compare `days` to the cadence in `policy['instructions']` (e.g., weekly ≈ 7 days). Then:
+**Hard floor — no LLM judgment:**
 
-- **If too soon AND no state-change event warrants an off-schedule run** (no government collapse, no war start, no major confirmation, no market shock in the last 24h):
-  ```python
-  from scripts import remember
-  remember(
-      f"Skipped zeitgeist {today} — last was {days:.1f}d ago, cadence is weekly, no threshold-crossing event.",
-      type='ops',
-      tags=['perch-time', 'zeitgeist-skip', today]
-  )
-  ```
-  **Exit the task.** Do not generate. Do not post. Do not store a zeitgeist memory.
+```python
+MIN_DAYS_BETWEEN_RUNS = 5  # weekly cadence with 2-day buffer
 
-- **Else:** continue to Phase 1.
+if days is not None and days < MIN_DAYS_BETWEEN_RUNS:
+    from scripts import remember
+    from datetime import date
+    today = date.today().isoformat()
+    remember(
+        f"Skipped zeitgeist {today} — last was {days:.1f}d ago, floor is {MIN_DAYS_BETWEEN_RUNS}d.",
+        type='ops',
+        tags=['perch-time', 'zeitgeist-skip', today]
+    )
+    # EXIT THE TASK. Do not generate. Do not post. Do not store a zeitgeist memory.
+    # Genuine state-change events get captured in the next scheduled run; missing
+    # one day is not a real cost. The point of the floor is to break the daily
+    # treadmill, not to capture every breaking development.
+    return
+```
 
-This is the autonomous interpretation of the ops entry's "push back if too soon" directive — in interactive mode Muninn pushes back at Oskar; in autonomous mode it skips with a log.
+**Do NOT add a state-change override here.** Diagnosed failure mode (2026-05-13): the prior wording "if too soon AND no state-change event warrants an off-schedule run" reduces to LLM judgment, and the LLM will always find a reason to run. The Warsh board vote, the Hormuz "ceasefire on life support," the daily tariff appeal — each looks like a state change in isolation, but they're trajectory updates on already-tracked stories. The autonomous path cannot tell the difference reliably; the structural floor is the fix.
+
+If something genuinely earth-shattering happens (Hormuz physically closes, government falls, war declared) and Oskar wants an off-schedule zeitgeist, he invokes it interactively. Interactive Muninn applies the ops entry's nuanced threshold; autonomous Muninn applies the floor.
+
+- **Else (`days >= MIN_DAYS_BETWEEN_RUNS` or no prior run):** continue to Phase 1.
 
 ### Phase 1: Gather context (1-2 turns)
 
