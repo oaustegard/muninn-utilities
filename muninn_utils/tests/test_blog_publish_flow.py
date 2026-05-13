@@ -118,7 +118,8 @@ def test_happy_path_main_chain_and_detached(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/x.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="A post",
         auth={"access_jwt": "j", "did": "did:plc:x", "handle": "h"},
         feed_entry={"title": "X", "summary": "..."},
@@ -145,7 +146,8 @@ def test_when_skips_feed_update_without_feed_path(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/y.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="B",
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         repo="oaustegard/oaustegard.github.io",
@@ -169,7 +171,8 @@ def test_validate_blocks_oversize_bsky_text(monkeypatch):
     huge = "x" * (bsky_limit.BSKY_LIMIT + 1)
     result = bp.publish_and_announce(
         path="blog/z.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text=huge,
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "Z", "summary": "..."},
@@ -204,7 +207,8 @@ def test_validate_blocks_when_url_append_pushes_over_limit(monkeypatch):
     bsky_text = "x" * 290
     result = bp.publish_and_announce(
         path="blog/long.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text=bsky_text,
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "L", "summary": "..."},
@@ -236,7 +240,8 @@ def test_retry_until_consumes_budget_when_deploy_slow(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/r.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="R",
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "R", "summary": "..."},
@@ -260,7 +265,8 @@ def test_retry_until_exhausts_budget(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/never.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="N",
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "N", "summary": "..."},
@@ -283,7 +289,8 @@ def test_skip_deploy_wait_short_circuits_probe(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/skip.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="S",
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "S", "summary": "..."},
@@ -303,7 +310,8 @@ def test_bsky_failure_does_not_block_main_return(monkeypatch):
 
     result = bp.publish_and_announce(
         path="blog/det.html",
-        content="<html/>",
+        content="<html/>",  # validate_html=False below — flow shape only
+        validate_html=False,
         bsky_text="D",
         auth={"access_jwt": "j", "did": "did", "handle": "h"},
         feed_entry={"title": "D", "summary": "..."},
@@ -318,6 +326,181 @@ def test_bsky_failure_does_not_block_main_return(monkeypatch):
     assert "503" in failures["announce_bsky"]
 
 
+# ── validate_blog_html (issue #20) ──────────────────────────────────
+
+import pytest
+
+
+def _valid_html(article_extra: str = '<img src="/static/hero.png" alt="Hero">') -> str:
+    """A minimal post that passes every check in validate_blog_html()."""
+    return f"""<!doctype html>
+<html><head>
+<meta property="article:published_time" content="2026-05-13T12:00:00Z">
+<meta name="bsky:uri" content="">
+<meta property="og:image" content="https://muninn.austegard.com/static/hero.png">
+</head><body>
+<article>
+<p class="post-meta">2026-05-13 · Muninn</p>
+{article_extra}
+<p>Post body.</p>
+</article>
+</body></html>"""
+
+
+@pytest.fixture
+def patch_path_exists(monkeypatch):
+    """Default: every asset exists. Tests can override via .return_value."""
+    mock = MagicMock(return_value=True)
+    monkeypatch.setattr(bp, "_gh_path_exists", mock)
+    return mock
+
+
+def test_validate_blog_html_happy_path(patch_path_exists):
+    """A well-formed post passes all six checks; asset existence probed once."""
+    bp.validate_blog_html(_valid_html(), repo="oaustegard/muninn.austegard.com")
+    assert patch_path_exists.call_count == 1
+    args = patch_path_exists.call_args
+    assert args[0][1] == "static/hero.png"
+
+
+def test_validate_blog_html_missing_published_time(patch_path_exists):
+    html = _valid_html().replace(
+        '<meta property="article:published_time" content="2026-05-13T12:00:00Z">', "")
+    with pytest.raises(ValueError, match="article:published_time"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_unparseable_published_time(patch_path_exists):
+    html = _valid_html().replace(
+        '"2026-05-13T12:00:00Z"', '"not-a-date"')
+    with pytest.raises(ValueError, match="not a parseable ISO"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_wrong_byline_class(patch_path_exists):
+    html = _valid_html().replace('class="post-meta"', 'class="byline"')
+    with pytest.raises(ValueError, match="post-meta"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_missing_bsky_uri_stub(patch_path_exists):
+    html = _valid_html().replace(
+        '<meta name="bsky:uri" content="">', "")
+    with pytest.raises(ValueError, match="bsky:uri"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_og_image_without_inline_img(patch_path_exists):
+    """og:image set, but article body has no <img> — past tg-cli-for-tangled bug."""
+    html = _valid_html(article_extra="")  # no <img> in article
+    with pytest.raises(ValueError, match="no <img>.*article body"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_og_image_asset_missing(patch_path_exists):
+    """og:image points at this repo's domain but the asset isn't there."""
+    patch_path_exists.return_value = False
+    with pytest.raises(ValueError, match="does not exist"):
+        bp.validate_blog_html(_valid_html(), repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_og_image_external_skips_existence(monkeypatch):
+    """External CDN og:image — inline <img> still required, but no existence probe."""
+    mock = MagicMock(return_value=False)
+    monkeypatch.setattr(bp, "_gh_path_exists", mock)
+    html = _valid_html().replace(
+        "https://muninn.austegard.com/static/hero.png",
+        "https://cdn.example.com/hero.png",
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+    assert mock.call_count == 0  # external host → no probe
+
+
+def test_validate_blog_html_og_image_relative_path(monkeypatch):
+    """og:image as relative path: probe against `repo` directly."""
+    mock = MagicMock(return_value=True)
+    monkeypatch.setattr(bp, "_gh_path_exists", mock)
+    html = _valid_html().replace(
+        "https://muninn.austegard.com/static/hero.png",
+        "/static/hero.png",
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+    assert mock.call_args[0][1] == "static/hero.png"
+
+
+def test_validate_blog_html_no_og_image_skips_checks_4_5(monkeypatch):
+    """Post without og:image: checks 4 and 5 skipped; no probe call."""
+    mock = MagicMock(return_value=False)
+    monkeypatch.setattr(bp, "_gh_path_exists", mock)
+    html = _valid_html(article_extra="").replace(
+        '<meta property="og:image" content="https://muninn.austegard.com/static/hero.png">',
+        "",
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+    assert mock.call_count == 0
+
+
+def test_validate_blog_html_img_missing_alt(patch_path_exists):
+    """An <img> tag without alt="…" — a11y regression."""
+    html = _valid_html(article_extra='<img src="/static/hero.png">')
+    with pytest.raises(ValueError, match="missing non-empty alt"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_img_with_empty_alt(patch_path_exists):
+    """alt="" treated as missing — explicit decorative-image opt-in not supported here."""
+    html = _valid_html(article_extra='<img src="/static/hero.png" alt="">')
+    with pytest.raises(ValueError, match="missing non-empty alt"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_publish_and_announce_validates_before_committing(monkeypatch):
+    """validate_html=True (default): bad HTML raises BEFORE any flow task runs."""
+    _reset(monkeypatch)
+    monkeypatch.setattr(bp, "_gh_path_exists", MagicMock(return_value=True))
+
+    bad_html = "<html><body>no metadata at all</body></html>"
+    with pytest.raises(ValueError, match="article:published_time"):
+        bp.publish_and_announce(
+            path="blog/bad.html",
+            content=bad_html,
+            bsky_text="x",
+            auth={"access_jwt": "j", "did": "d", "handle": "h"},
+            feed_entry={"title": "Bad", "summary": "..."},
+        )
+    # No side effects: publish_page never reached.
+    assert bp.publish_page.call_count == 0
+
+
+def test_publish_and_announce_validate_html_false_bypasses(monkeypatch):
+    """validate_html=False: pre-flow check skipped; existing flow path used."""
+    bc = _reset(monkeypatch)
+    result = bp.publish_and_announce(
+        path="blog/bypass.html",
+        content="<html/>",  # would fail validation
+        validate_html=False,
+        bsky_text="x",
+        auth={"access_jwt": "j", "did": "d", "handle": "h"},
+        feed_entry={"title": "Bypass", "summary": "..."},
+    )
+    assert result["commit_sha"] == "abcdef1234"
+    assert bc.compose_link_post.call_count == 1
+
+
+def test_publish_and_announce_validates_real_html_happy_path(monkeypatch):
+    """validate_html=True + well-formed HTML: full pipeline runs."""
+    bc = _reset(monkeypatch)
+    monkeypatch.setattr(bp, "_gh_path_exists", MagicMock(return_value=True))
+    result = bp.publish_and_announce(
+        path="blog/good.html",
+        content=_valid_html(),
+        bsky_text="x",
+        auth={"access_jwt": "j", "did": "d", "handle": "h"},
+        feed_entry={"title": "Good", "summary": "..."},
+    )
+    assert result["commit_sha"] == "abcdef1234"
+    assert bc.compose_link_post.call_count == 1
+
+
 if __name__ == "__main__":
-    import pytest
     sys.exit(pytest.main([__file__, "-v"]))

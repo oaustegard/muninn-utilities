@@ -115,6 +115,127 @@ def _gh_raw(repo, path, ref="main"):
     return urllib.request.urlopen(req).read().decode("utf-8")
 
 
+def _gh_path_exists(repo, path, ref="main"):
+    """True iff `path` exists in `repo` at `ref`. One GitHub API call."""
+    token = _gh_token()
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/contents/{path}?ref={ref}",
+        method="HEAD",
+        headers={
+            "User-Agent": "muninn-raven",
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    try:
+        resp = urllib.request.urlopen(req)
+        return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        raise
+
+
+# ── Pre-commit HTML validation (issue #20) ─────────────────────────
+
+# Maps a netloc to its GitHub Pages repo so we know when an og:image URL points
+# at an asset we can verify with _gh_path_exists. External CDNs / other hosts
+# are skipped — we can't check what isn't ours.
+_NETLOC_TO_REPO = {
+    "muninn.austegard.com": "oaustegard/muninn.austegard.com",
+    "austegard.com": "oaustegard/oaustegard.github.io",
+}
+
+
+def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
+    """Pre-commit invariants for muninn.austegard.com / austegard.com posts.
+
+    Raises ValueError with a clear message on the first violation. Each check
+    corresponds to a real past failure mode; see issue oaustegard/muninn-utilities#20
+    for the post-mortem table.
+
+    Checks (in order):
+        1. <meta property="article:published_time"> present + parseable ISO timestamp
+        2. Byline uses class="post-meta"
+        3. <meta name="bsky:uri"> stub present
+        4. If og:image is set, body contains an inline <img>
+        5. If og:image points to an asset in `repo`, that asset exists
+        6. All inline <img> tags have non-empty alt=""
+
+    `repo` and `branch` are used only by check 5 (the existence probe).
+    """
+    # 1. article:published_time — feed.xml indexing depends on this.
+    m = re.search(
+        r'<meta[^>]+article:published_time[^>]+content="([^"]+)"', content)
+    if not m:
+        raise ValueError(
+            "Missing article:published_time meta tag — post will be invisible "
+            "to feed.xml. See generating-lattice.html / portrait-mode-for-svgs "
+            "post-mortems (memories 61758c22, e5661f26)."
+        )
+    ts = m.group(1)
+    try:
+        datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise ValueError(
+            f"article:published_time content {ts!r} is not a parseable ISO "
+            f"timestamp ({e})."
+        )
+
+    # 2. Byline class — build_blog.py date parser depends on the exact class name.
+    if not re.search(r'<p[^>]+class="post-meta"', content):
+        raise ValueError(
+            'Byline must use class="post-meta" (not "meta" / "byline" / "author") '
+            "— build_blog.py date parser depends on it."
+        )
+
+    # 3. bsky:uri stub — link_engagement UPDATES but does not INSERT.
+    if not re.search(r'<meta\s+name="bsky:uri"', content):
+        raise ValueError(
+            'Missing <meta name="bsky:uri" content=""> stub — link_engagement '
+            "updates but does not insert. Engagement widget will silently fail "
+            "to wire (memory 225433fb)."
+        )
+
+    # 4 + 5. og:image consistency: inline <img>, and asset existence.
+    og = re.search(r'<meta[^>]+og:image[^>]+content="([^"]+)"', content)
+    if og:
+        og_url = og.group(1)
+        article = re.search(r'<article[^>]*>(.*?)</article>', content, re.S)
+        if not article or not re.search(r'<img\b', article.group(1)):
+            raise ValueError(
+                "og:image is set but no <img> appears in the article body — "
+                "hero will only show on Bluesky link cards, not on the page "
+                "(tg-cli-for-tangled post-mortem, 2026-05-13)."
+            )
+
+        # Resolve og:image to a repo-relative path if it points at this repo's
+        # site. External hosts → skip the existence check.
+        from urllib.parse import urlparse
+        parsed = urlparse(og_url)
+        if parsed.scheme:
+            if _NETLOC_TO_REPO.get(parsed.netloc) == repo:
+                asset_path = parsed.path.lstrip("/")
+            else:
+                asset_path = None  # external CDN, can't verify in this repo
+        else:
+            asset_path = og_url.lstrip("/")
+
+        if asset_path and not _gh_path_exists(repo, asset_path, branch):
+            raise ValueError(
+                f"og:image points to {og_url!r} but {asset_path} does not "
+                f"exist in {repo} at ref {branch}."
+            )
+
+    # 6. All inline <img> tags need non-empty alt="…".
+    for tag in re.finditer(r'<img\s[^>]*>', content):
+        if not re.search(r'\salt="[^"]+"', tag.group(0)):
+            raise ValueError(
+                f"Inline <img> missing non-empty alt attribute: "
+                f"{tag.group(0)[:120]}"
+            )
+
+
 def publish_page(repo, path, content, message=None):
     """Commit a single file to GitHub Pages repo. Returns commit SHA."""
     if not message:
@@ -360,7 +481,8 @@ def publish_and_announce(path, content, bsky_text, auth,
                          feed_path="feed.xml",
                          feed_entry=None,
                          commit_message=None,
-                         skip_deploy_wait=False):
+                         skip_deploy_wait=False,
+                         validate_html=True):
     """Publish page → wait for deploy → update feed; bsky chain runs detached.
 
     Internal shape (flowing graph):
@@ -377,7 +499,15 @@ def publish_and_announce(path, content, bsky_text, auth,
     `flow.detached_failures` and the function still returns the page URL.
 
     See issue oaustegard/claude-skills#616.
+
+    `validate_html=True` runs `validate_blog_html(content, repo)` BEFORE the
+    flow builds — raises ValueError on the first failed invariant so nothing
+    commits. Set False to skip (e.g. for non-blog pages with different shape).
+    See issue oaustegard/muninn-utilities#20.
     """
+    if validate_html:
+        validate_blog_html(content, repo)
+
     url = f"{site_base}/{path}"
 
     @task(name="publish_page_node")
