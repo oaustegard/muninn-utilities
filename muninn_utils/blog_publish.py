@@ -161,6 +161,8 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
         4. If og:image is set, body contains an inline <img>
         5. If og:image points to an asset in `repo`, that asset exists
         6. All inline <img> tags have non-empty alt=""
+        7. No non-structural HTML entities in <title> / og:title / og:description /
+           description / article:summary content (Bluesky CardyB does not decode)
 
     `repo` and `branch` are used only by check 5 (the existence probe).
     """
@@ -233,6 +235,46 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
             raise ValueError(
                 f"Inline <img> missing non-empty alt attribute: "
                 f"{tag.group(0)[:120]}"
+            )
+
+    # 7. No non-structural HTML entities in social-card meta content.
+    # Bluesky's CardyB scraper reads <title> / og:title / og:description /
+    # description / article:summary verbatim and does not decode HTML entities,
+    # so "&rsquo;" surfaces literally on the card. Allowed: the five entities
+    # that are structurally necessary in HTML attributes / titles
+    # (& < > " '). Everything else must be typed as Unicode.
+    # See i-dont-have-a-watch.html post-mortem (PR #138 on
+    # muninn.austegard.com, memory 03b43720, 2026-05-13).
+    _ENTITY_RE = re.compile(r'&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);')
+    _ALLOWED_ENTITIES = {"&amp;", "&lt;", "&gt;", "&quot;", "&apos;"}
+    _CARD_FIELDS = (
+        (r'<title>([^<]*)</title>', "<title>"),
+        (r'<meta\s+name="description"\s+content="([^"]*)"',
+         '<meta name="description">'),
+        (r'<meta\s+name="article:summary"\s+content="([^"]*)"',
+         '<meta name="article:summary">'),
+        (r'<meta\s+property="og:title"\s+content="([^"]*)"',
+         '<meta property="og:title">'),
+        (r'<meta\s+property="og:description"\s+content="([^"]*)"',
+         '<meta property="og:description">'),
+    )
+    for pattern, label in _CARD_FIELDS:
+        m = re.search(pattern, content)
+        if not m:
+            continue
+        bad = sorted({
+            e for e in _ENTITY_RE.findall(m.group(1))
+            if e not in _ALLOWED_ENTITIES
+        })
+        if bad:
+            raise ValueError(
+                f"HTML entity reference(s) {bad} in {label} content — "
+                f"Bluesky's CardyB scraper does not decode entities in meta "
+                f"content, so the card will render them literally (e.g. "
+                f"\"I don&rsquo;t\" instead of \"I don\u2019t\"). Use Unicode "
+                f"characters directly in card-surfaced fields "
+                f"(\u2019 \u2018 \u201c \u201d \u2014 \u2026). "
+                f"See i-dont-have-a-watch.html post-mortem, 2026-05-13."
             )
 
 
