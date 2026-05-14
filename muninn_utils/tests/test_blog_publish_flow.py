@@ -453,6 +453,135 @@ def test_validate_blog_html_img_with_empty_alt(patch_path_exists):
         bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
 
 
+# ── Check 7: HTML entities in social-card meta content ──────────────
+
+_CARD_META = (
+    '<title>Clean title</title>\n'
+    '<meta name="description" content="Clean description.">\n'
+    '<meta name="article:summary" content="Clean summary.">\n'
+    '<meta property="og:title" content="Clean og:title">\n'
+    '<meta property="og:description" content="Clean og:description.">\n'
+)
+
+
+def _valid_html_with_card() -> str:
+    """_valid_html() augmented with all five card-surfaced meta fields."""
+    return _valid_html().replace(
+        '<meta property="article:published_time"',
+        _CARD_META + '<meta property="article:published_time"',
+    )
+
+
+def test_validate_blog_html_card_fields_unicode_happy_path(patch_path_exists):
+    """All five card fields present with Unicode punctuation — passes."""
+    html = _valid_html_with_card().replace(
+        "Clean og:title", "I don\u2019t have a watch."
+    ).replace(
+        "Clean og:description", "I wrote \u2018a month ago\u2019 in a post."
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_og_title(patch_path_exists):
+    """`&rsquo;` in og:title → raise (i-dont-have-a-watch failure mode)."""
+    html = _valid_html_with_card().replace(
+        "Clean og:title", "I don&rsquo;t have a watch."
+    )
+    with pytest.raises(ValueError, match=r"og:title.*&rsquo;|&rsquo;.*og:title"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_og_description(patch_path_exists):
+    """`&lsquo;` / `&rsquo;` in og:description → raise."""
+    html = _valid_html_with_card().replace(
+        "Clean og:description", "I wrote &lsquo;a month ago&rsquo; in a post."
+    )
+    with pytest.raises(ValueError, match=r"og:description"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_title_tag(patch_path_exists):
+    """`&rsquo;` in <title> → raise (also surfaces on the card)."""
+    html = _valid_html_with_card().replace(
+        "Clean title", "I don&rsquo;t have a watch."
+    )
+    with pytest.raises(ValueError, match=r"<title>"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_description(patch_path_exists):
+    """`&rsquo;` in <meta name="description"> → raise."""
+    html = _valid_html_with_card().replace(
+        "Clean description.", "yesterday&rsquo;s 12-hour work."
+    )
+    with pytest.raises(ValueError, match=r'name="description"'):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_article_summary(patch_path_exists):
+    """`&rsquo;` in <meta name="article:summary"> → raise."""
+    html = _valid_html_with_card().replace(
+        "Clean summary.", "yesterday&rsquo;s 12-hour work."
+    )
+    with pytest.raises(ValueError, match=r'article:summary'):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_amp_entity_allowed_in_card(patch_path_exists):
+    """`&amp;` is structurally required in HTML and must be allowed."""
+    html = _valid_html_with_card().replace(
+        "Clean og:title", "Tom &amp; Jerry"
+    ).replace(
+        "Clean og:description", "Cats &amp; dogs and other pairs."
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_quot_lt_gt_entities_allowed_in_card(patch_path_exists):
+    """`&lt;`, `&gt;`, `&quot;` are structural and allowed."""
+    html = _valid_html_with_card().replace(
+        "Clean og:title", "How &lt;script&gt; is escaped"
+    ).replace(
+        "Clean og:description", "Use the &quot;right&quot; thing."
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_numeric_entity_in_og_title(patch_path_exists):
+    """`&#8217;` (numeric U+2019) in og:title → raise. Type Unicode directly."""
+    html = _valid_html_with_card().replace(
+        "Clean og:title", "I don&#8217;t have a watch."
+    )
+    with pytest.raises(ValueError, match=r"og:title"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_hex_entity_in_og_description(patch_path_exists):
+    """`&#x2019;` (hex numeric) in og:description → raise."""
+    html = _valid_html_with_card().replace(
+        "Clean og:description", "I wrote &#x2018;a month ago&#x2019; today."
+    )
+    with pytest.raises(ValueError, match=r"og:description"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_entity_in_body_is_fine(patch_path_exists):
+    """Entities in visible body text are normal HTML and must NOT raise."""
+    # Add entities only to article body, leave card meta fields clean.
+    html = _valid_html_with_card().replace(
+        "<p>Post body.</p>",
+        "<p>I don&rsquo;t have a watch &mdash; just &ldquo;vibes.&rdquo;</p>",
+    )
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_validate_blog_html_no_card_fields_skips_check_7(patch_path_exists):
+    """Posts without card meta tags pass check 7 silently (regression guard)."""
+    # _valid_html() has no <title>/og:title/og:description/description/summary
+    # so check 7 should find nothing to inspect and pass.
+    bp.validate_blog_html(_valid_html(), repo="oaustegard/muninn.austegard.com")
+
+
 def test_publish_and_announce_validates_before_committing(monkeypatch):
     """validate_html=True (default): bad HTML raises BEFORE any flow task runs."""
     _reset(monkeypatch)
