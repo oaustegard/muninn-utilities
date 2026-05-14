@@ -183,10 +183,58 @@ def test_decorator_no_aliases_returns_func_unchanged():
     def nonexistent_function_no_aliases(x):
         return x
 
-    # Decorator should be a no-op for functions without ALIASES entries —
-    # in our impl, the decorator just returns the original function.
+    # v5.12.0: the decorator now wraps every function (no fast-path) so it
+    # can validate kwargs against the wrapped signature. Still pass-through
+    # for valid calls, but the function object is wrapped.
     assert nonexistent_function_no_aliases(42) == 42
     print("PASS: no-aliases function is pass-through")
+
+
+def test_decorator_unknown_kwarg_raises_informative_typeerror():
+    """Unknown kwargs raise TypeError that includes the signature and aliases.
+
+    v5.12.0: surfaces the wrapped function's real signature in the error
+    message instead of leaving callers with Python's bare
+    ``TypeError: got an unexpected keyword argument 'X'``.
+    """
+    from scripts.aliases import accept_aliases, ALIASES
+
+    @accept_aliases
+    def fake_supersede(original_id, summary, type, *, tags=None, conf=None, priority=None):
+        return (original_id, summary, type, tags, conf, priority)
+
+    # Make sure the alias table has a known entry for this function name so
+    # the message includes the "Known aliases" hint. Use the real supersede
+    # name so it picks up the production alias dict.
+    fake_supersede.__name__ = "supersede"
+    fake_supersede.__wrapped__.__name__ = "supersede"
+
+    raised = None
+    try:
+        fake_supersede("id", "body", "decision", bogus_kwarg=1)
+    except TypeError as e:
+        raised = e
+
+    assert raised is not None, "Unknown kwarg should raise TypeError"
+    msg = str(raised)
+    assert "bogus_kwarg" in msg, f"Error should name the offending kwarg; got: {msg}"
+    assert "Signature:" in msg, f"Error should include the signature; got: {msg}"
+    assert "priority" in msg, f"Signature should expose real kwargs; got: {msg}"
+    print("PASS: unknown kwarg raises informative TypeError with signature")
+
+
+def test_decorator_var_keyword_skips_validation():
+    """Functions accepting **kwargs are exempt from the unknown-kwarg check."""
+    from scripts.aliases import accept_aliases
+
+    @accept_aliases
+    def fn_with_kwargs(**kwargs):
+        return kwargs
+
+    # Should not raise even with a kwarg that's not in any alias table
+    result = fn_with_kwargs(anything=1, whatever=2)
+    assert result == {"anything": 1, "whatever": 2}
+    print("PASS: **kwargs functions skip unknown-kwarg validation")
 
 
 # ── Layer 2: MemoryResult field aliases warn ──
@@ -529,6 +577,8 @@ if __name__ == "__main__":
         test_decorator_translates_remember_what_to_summary,
         test_decorator_translates_supersede_content_to_summary,
         test_decorator_no_aliases_returns_func_unchanged,
+        test_decorator_unknown_kwarg_raises_informative_typeerror,
+        test_decorator_var_keyword_skips_validation,
         # Layer 2: field aliases
         test_memory_result_attr_alias_warns,
         test_memory_result_item_alias_warns,

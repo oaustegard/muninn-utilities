@@ -2,6 +2,51 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.12.0] - 2026-05-14
+
+### Added
+
+- `supersede()` now accepts a `priority: int = None` kwarg matching the
+  importance dimension `remember()` already exposes. The default is
+  **inherit from the original memory**, eliminating the silent-downgrade
+  foot-gun that surfaced on every `supersede(type="procedure", ...)`
+  before this change. Pass an explicit value to override. After
+  inheritance/override, the same `type=="procedure" and priority==0 → 1`
+  floor and `[-1, 2]` clamp from `remember()` apply.
+- `@accept_aliases` decorator now validates kwargs against the wrapped
+  function's signature after alias translation. Unknown kwargs raise a
+  `TypeError` whose message includes the full signature and the
+  registered aliases, replacing Python's bare
+  `TypeError: got an unexpected keyword argument 'X'`. Functions whose
+  signature includes `**kwargs` (`VAR_KEYWORD`) skip this validation by
+  design.
+
+### Fixed
+
+- `supersede()` no longer silently downgrades procedural memories to
+  priority 0. The INSERT previously hardcoded `priority = 0`, which
+  meant every `supersede(type="procedure", ...)` call discarded the
+  priority-1 floor that the `remember()` path applies, making the
+  replacement more eligible for pruning than the original. With the
+  inheritance default, the replacement now preserves the original's
+  priority by default; the procedure floor still fires when the
+  effective priority is 0.
+
+### Changed
+
+- `@accept_aliases` is no longer a pass-through for functions without
+  registered aliases. It still translates aliases when present, but now
+  always wraps so it can produce informative `TypeError`s for unknown
+  kwargs. The performance impact is one extra function call per
+  decorated invocation — negligible for the memory API surface.
+
+Note: callers reaching for `supersede(..., priority=...)` previously got
+a `TypeError: unexpected keyword argument 'priority'` — a confusing
+asymmetry with `remember()`. This change resolves the asymmetry at the
+signature level rather than via the alias table, because `priority` and
+`conf` are distinct fields (importance vs confidence) and aliasing one
+to the other would silently set the wrong column.
+
 ## [5.11.0] - 2026-05-13
 
 ### Changed
