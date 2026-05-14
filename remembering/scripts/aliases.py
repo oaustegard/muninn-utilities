@@ -152,27 +152,49 @@ ALIASES: dict[str, dict[str, str]] = {
 
 
 def accept_aliases(func: Callable) -> Callable:
-    """Translate deprecated kwarg aliases to canonical names with a warning.
+    """Translate deprecated kwarg aliases to canonical names with a warning,
+    and raise an informative ``TypeError`` for any kwarg the wrapped function
+    does not accept.
 
-    Wraps ``func`` such that any kwarg listed in ``ALIASES[func.__name__]``
-    is renamed to the canonical kwarg before the underlying call. Emits a
-    ``DeprecationWarning`` per translated kwarg so the wrong mental model
-    surfaces at the call site (silent translation lets the wrong name
-    persist forever; hard-failing wastes a turn — warn is the goldilocks).
+    Two jobs in one decorator:
+
+    1. **Alias translation.** Any kwarg listed in ``ALIASES[func.__name__]``
+       is renamed to the canonical kwarg before the underlying call. Emits a
+       ``DeprecationWarning`` per translated kwarg so the wrong mental model
+       surfaces at the call site. Silent translation lets the wrong name
+       persist forever; hard-failing wastes a turn — warn is the goldilocks.
+
+    2. **Unknown-kwarg validation.** After alias translation, any remaining
+       kwarg that is not in the wrapped function's signature raises a
+       ``TypeError`` whose message includes the full signature *and* the
+       registered aliases. This replaces Python's bare
+       ``TypeError: got an unexpected keyword argument 'X'`` with output the
+       caller can fix from. Functions whose signature includes ``**kwargs``
+       (``VAR_KEYWORD``) skip this check — they accept anything by design.
 
     Raises:
-        TypeError: If both the wrong-name and right-name kwarg are passed.
-
-    Functions without an entry in ``ALIASES`` are pass-through.
+        TypeError: If both the wrong-name and right-name kwarg are passed,
+            or if any kwarg is not in the wrapped function's signature
+            (after alias translation) and the function does not accept
+            ``**kwargs``.
     """
+    import inspect
+
     name = func.__name__
     aliases = ALIASES.get(name, {})
 
-    if not aliases:
-        # Fast path: no aliases registered for this function. Don't bother
-        # wrapping — the decorator is meant to be cheap enough to apply
-        # broadly, but we can still skip the kwargs walk entirely.
-        return func
+    sig = inspect.signature(func)
+    valid_kwargs = {
+        p_name for p_name, p in sig.parameters.items()
+        if p.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    accepts_var_keyword = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD
+        for p in sig.parameters.values()
+    )
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -193,6 +215,25 @@ def accept_aliases(func: Callable) -> Callable:
                 stacklevel=2,
             )
             kwargs[right] = kwargs.pop(wrong)
+
+        # After alias translation, validate against the real signature.
+        # Skipped for functions that accept **kwargs (they take anything).
+        if not accepts_var_keyword:
+            unexpected = [k for k in kwargs if k not in valid_kwargs]
+            if unexpected:
+                # Show signature minus 'self' for readability if it's a method
+                sig_str = f"{name}{sig}"
+                alias_hint = (
+                    f"\n  Known aliases: {dict(sorted(aliases.items()))}"
+                    if aliases else ""
+                )
+                raise TypeError(
+                    f"{name}() got unexpected keyword argument(s): "
+                    f"{sorted(unexpected)!r}.\n"
+                    f"  Signature: {sig_str}"
+                    f"{alias_hint}"
+                )
+
         return func(*args, **kwargs)
 
     return wrapper

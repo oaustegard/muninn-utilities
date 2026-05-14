@@ -1119,7 +1119,7 @@ def forget(memory_id: str) -> bool:
 @accept_aliases
 def supersede(original_id: str, summary: str, type: str, *,
               tags: list = None, conf: float = None,
-              priority: int = 0) -> "MemoryWriteId":
+              priority: int = None) -> "MemoryWriteId":
     """Create a patch that supersedes an existing memory. Type required. Returns new memory ID.
 
     Supports partial IDs for original_id (v5.1.0, #244).
@@ -1131,13 +1131,17 @@ def supersede(original_id: str, summary: str, type: str, *,
         tags: Tags for the new memory.
         conf: Confidence value (default 0.8).
         priority: Priority level (-1=background, 0=normal, 1=important, 2=critical).
-            Mirrors ``remember()``: procedural memories default to 1 if 0 is passed,
-            ensuring supersede() does not silently downgrade a procedure that was
-            written at the procedure floor. Pass an explicit value to override.
+            **Default behavior (v5.12.0): inherit from the original memory.** If the
+            original was priority=1, the replacement is too. Pass an explicit value
+            to override. After inheritance/override, the same procedure-floor as
+            ``remember()`` applies: ``type="procedure"`` with effective priority 0
+            is bumped to 1 so procedural memories survive pruning. Clamped to
+            ``[-1, 2]``.
 
-    v5.12.0: Added ``priority`` kwarg matching ``remember()``. Previously hardcoded
-             to 0, which silently downgraded procedure-type memories from the
-             priority-1 floor enforced on the remember() path.
+    v5.12.0: Added ``priority`` kwarg matching ``remember()``. Defaults to
+             inheriting the original's priority. Previous behavior hardcoded
+             priority to 0, silently downgrading procedure-type memories from
+             the priority-1 floor that remember() enforces.
     v5.1.0: Added partial ID support (#244).
     v5.0.0: Removed local cache operations. Turso-only.
     v3.3.0: Uses _exec_batch for single HTTP request (2x efficiency improvement).
@@ -1147,9 +1151,24 @@ def supersede(original_id: str, summary: str, type: str, *,
     new_id = str(uuid.uuid4())
     session_id = get_session_id()
 
+    # Resolve effective priority: explicit override or inherit from original.
+    # Inheritance costs one extra round-trip but eliminates the silent-downgrade
+    # foot-gun for the entire memory class without requiring callers to think
+    # about priority at every supersede() site.
+    if priority is None:
+        rows = _exec("SELECT priority FROM memories WHERE id = ?", [original_id])
+        if not rows:
+            # Defensive — _resolve_memory_id already raised if not found, but
+            # the row could vanish between resolve and read in a race. Fall
+            # back to the same default remember() would have written.
+            priority = 1 if type == "procedure" else 0
+        else:
+            priority = int(rows[0]["priority"])
+
     # Procedural memories default to priority 1 to survive pruning — matches
     # the remember() path so supersede(type="procedure", ...) preserves the
-    # priority-1 floor instead of silently downgrading to 0.
+    # priority-1 floor whether the user wrote priority=0 explicitly OR the
+    # inherited value from a non-procedure original was 0.
     if type == "procedure" and priority == 0:
         priority = 1
 
