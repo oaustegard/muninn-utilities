@@ -287,6 +287,63 @@ def test_supersede():
     print("PASS: Supersede works")
 
 
+def test_supersede_preserves_procedure_priority():
+    """Supersede a procedure → new memory keeps priority floor of 1, not 0.
+
+    Regression test for v5.12.0: supersede() previously hardcoded priority=0 in
+    its INSERT, silently downgrading procedural memories below the priority-1
+    floor that remember() enforces. The asymmetry made every supersede() of a
+    procedure a silent prune-eligibility upgrade.
+    """
+    from scripts import remember, supersede, forget, _exec
+
+    original_id = remember("Procedure v5.12", "procedure",
+                           tags=["supersede-priority-procedure-v5"])
+    rows = _exec("SELECT priority FROM memories WHERE id = ?", [original_id])
+    assert int(rows[0]["priority"]) == 1, "remember() should floor procedure at priority 1"
+
+    new_id = supersede(original_id, "Updated procedure v5.12", "procedure",
+                       tags=["supersede-priority-procedure-v5"])
+    rows = _exec("SELECT priority FROM memories WHERE id = ?", [new_id])
+    assert int(rows[0]["priority"]) == 1, (
+        "supersede() must preserve procedure priority floor; got "
+        f"{rows[0]['priority']}"
+    )
+
+    forget(new_id)
+    print("PASS: Supersede preserves procedure priority floor")
+
+
+def test_supersede_accepts_explicit_priority():
+    """supersede(..., priority=2) is honored and clamped to valid range."""
+    from scripts import remember, supersede, forget, _exec
+
+    original_id = remember("Decision v5.12", "decision",
+                           tags=["supersede-priority-explicit-v5"])
+
+    # Explicit priority on a non-procedure type
+    new_id = supersede(original_id, "Updated decision v5.12", "decision",
+                       tags=["supersede-priority-explicit-v5"], priority=2)
+    rows = _exec("SELECT priority FROM memories WHERE id = ?", [new_id])
+    assert int(rows[0]["priority"]) == 2, (
+        f"supersede(priority=2) should set priority=2; got {rows[0]['priority']}"
+    )
+    forget(new_id)
+
+    # Out-of-range priorities clamp to [-1, 2] just like remember()
+    original_id = remember("Decision v5.12b", "decision",
+                           tags=["supersede-priority-explicit-v5"])
+    new_id = supersede(original_id, "Updated decision v5.12b", "decision",
+                       tags=["supersede-priority-explicit-v5"], priority=99)
+    rows = _exec("SELECT priority FROM memories WHERE id = ?", [new_id])
+    assert int(rows[0]["priority"]) == 2, (
+        f"supersede(priority=99) should clamp to 2; got {rows[0]['priority']}"
+    )
+    forget(new_id)
+
+    print("PASS: Supersede honors and clamps explicit priority")
+
+
 def test_strengthen_weaken():
     """Test 15: Priority adjustment works without cache"""
     from scripts import remember, strengthen, weaken, forget, _exec
@@ -846,6 +903,8 @@ if __name__ == "__main__":
         test_remember_types_validation,
         test_remember_alternatives,
         test_supersede,
+        test_supersede_preserves_procedure_priority,
+        test_supersede_accepts_explicit_priority,
         test_strengthen_weaken,
         test_config_crud,
         test_boot_returns_string,

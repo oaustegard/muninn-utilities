@@ -2,6 +2,33 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.12.0] - 2026-05-14
+
+### Added
+
+- `supersede()` now accepts a `priority: int = 0` kwarg matching the
+  `remember()` signature. When `type="procedure"` and `priority=0`, the
+  value is bumped to 1 — the same priority-1 floor that `remember()`
+  enforces for procedural memories so they survive pruning. Priority is
+  clamped to `[-1, 2]` like the rest of the surface.
+
+### Fixed
+
+- `supersede()` no longer silently downgrades procedural memories to
+  priority 0. The INSERT previously hardcoded `priority = 0`, which
+  meant every `supersede(type="procedure", ...)` call discarded the
+  priority-1 floor that the `remember()` path applies, making the
+  replacement more eligible for pruning than the original. Procedural
+  memories now preserve the floor by default; callers can still pass an
+  explicit `priority` to override.
+
+Note: callers reaching for `supersede(..., priority=...)` previously got
+a `TypeError: unexpected keyword argument 'priority'` — a confusing
+asymmetry with `remember()`. This change resolves the asymmetry at the
+signature level rather than via the alias table, because `priority` and
+`conf` are distinct fields (importance vs confidence) and aliasing one
+to the other would silently set the wrong column.
+
 ## [5.11.0] - 2026-05-13
 
 ### Changed

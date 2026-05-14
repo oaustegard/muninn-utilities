@@ -1118,11 +1118,26 @@ def forget(memory_id: str) -> bool:
 # @lat: [[memory#Core Operations]]
 @accept_aliases
 def supersede(original_id: str, summary: str, type: str, *,
-              tags: list = None, conf: float = None) -> "MemoryWriteId":
+              tags: list = None, conf: float = None,
+              priority: int = 0) -> "MemoryWriteId":
     """Create a patch that supersedes an existing memory. Type required. Returns new memory ID.
 
     Supports partial IDs for original_id (v5.1.0, #244).
 
+    Args:
+        original_id: ID of the memory being replaced (partial IDs supported).
+        summary: Content of the replacement memory.
+        type: Memory type (procedure, decision, experience, …). Required.
+        tags: Tags for the new memory.
+        conf: Confidence value (default 0.8).
+        priority: Priority level (-1=background, 0=normal, 1=important, 2=critical).
+            Mirrors ``remember()``: procedural memories default to 1 if 0 is passed,
+            ensuring supersede() does not silently downgrade a procedure that was
+            written at the procedure floor. Pass an explicit value to override.
+
+    v5.12.0: Added ``priority`` kwarg matching ``remember()``. Previously hardcoded
+             to 0, which silently downgraded procedure-type memories from the
+             priority-1 floor enforced on the remember() path.
     v5.1.0: Added partial ID support (#244).
     v5.0.0: Removed local cache operations. Turso-only.
     v3.3.0: Uses _exec_batch for single HTTP request (2x efficiency improvement).
@@ -1131,6 +1146,15 @@ def supersede(original_id: str, summary: str, type: str, *,
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     new_id = str(uuid.uuid4())
     session_id = get_session_id()
+
+    # Procedural memories default to priority 1 to survive pruning — matches
+    # the remember() path so supersede(type="procedure", ...) preserves the
+    # priority-1 floor instead of silently downgrading to 0.
+    if type == "procedure" and priority == 0:
+        priority = 1
+
+    # Clamp to valid range, matching remember().
+    priority = max(-1, min(2, priority))
 
     # Batch both operations in single HTTP request (v3.3.0)
     # v5.x.0 (#issue-superseded-col): Also flag original as superseded so the
@@ -1141,9 +1165,9 @@ def supersede(original_id: str, summary: str, type: str, *,
         # Insert new memory
         ("""INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
                session_id, created_at, updated_at, valid_from, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0, NULL)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
          [new_id, type, now, summary, conf or 0.8,
-          json.dumps(tags or []), json.dumps([original_id]),
+          json.dumps(tags or []), json.dumps([original_id]), priority,
           session_id, now, now, now])
     ])
 
