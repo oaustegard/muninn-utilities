@@ -278,8 +278,17 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
             )
 
 
-def publish_page(repo, path, content, message=None):
-    """Commit a single file to GitHub Pages repo. Returns commit SHA."""
+def publish_page(repo, path, content, message=None, binary=False):
+    """Commit a single file to GitHub Pages repo. Returns commit SHA.
+
+    Args:
+        repo: GitHub repo (owner/name)
+        path: Path within the repo
+        content: File content (str for text, bytes for binary)
+        message: Commit message
+        binary: If True, content is treated as bytes and base64-encoded.
+                GitHub will store the decoded binary, not the base64 string.
+    """
     if not message:
         message = f"Publish {path}"
 
@@ -288,8 +297,14 @@ def publish_page(repo, path, content, message=None):
     commit = _gh_api("GET", f"/repos/{repo}/git/commits/{ref_sha}")
     tree_sha = commit["tree"]["sha"]
 
-    blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
-                    {"content": content, "encoding": "utf-8"})
+    if binary:
+        import base64
+        encoded = base64.b64encode(content).decode()
+        blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
+                        {"content": encoded, "encoding": "base64"})
+    else:
+        blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
+                        {"content": content, "encoding": "utf-8"})
 
     tree = _gh_api("POST", f"/repos/{repo}/git/trees", {
         "base_tree": tree_sha,
