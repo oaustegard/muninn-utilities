@@ -630,5 +630,65 @@ def test_publish_and_announce_validates_real_html_happy_path(monkeypatch):
     assert bc.compose_link_post.call_count == 1
 
 
+# ── publish_page binary content (issue #31) ────────────────────────
+
+
+def _capture_gh_api(captured):
+    """Build a fake `_gh_api` that records calls and returns plausible shapes."""
+    def fake(method, endpoint, data=None):
+        captured.append((method, endpoint, data))
+        if endpoint.endswith("/git/refs/heads/main") and method == "GET":
+            return {"object": {"sha": "ref_sha"}}
+        if "/git/commits/" in endpoint and method == "GET":
+            return {"tree": {"sha": "tree_sha"}}
+        if endpoint.endswith("/git/blobs"):
+            return {"sha": "blob_sha"}
+        if endpoint.endswith("/git/trees"):
+            return {"sha": "new_tree_sha"}
+        if endpoint.endswith("/git/commits") and method == "POST":
+            return {"sha": "new_commit_sha"}
+        if endpoint.endswith("/git/refs/heads/main") and method == "PATCH":
+            return {}
+        return {}
+    return fake
+
+
+def test_publish_page_str_uses_utf8_encoding(monkeypatch):
+    """str content → blobs API receives encoding=utf-8 and the string verbatim."""
+    captured = []
+    monkeypatch.setattr(bp, "_gh_api", _capture_gh_api(captured))
+
+    sha = bp.publish_page("owner/repo", "page.html", "<html>hi</html>")
+    assert sha == "new_commit_sha"
+
+    blob_calls = [c for c in captured if c[1].endswith("/git/blobs")]
+    assert len(blob_calls) == 1
+    payload = blob_calls[0][2]
+    assert payload == {"content": "<html>hi</html>", "encoding": "utf-8"}
+
+
+def test_publish_page_bytes_uses_base64_encoding(monkeypatch):
+    """bytes content → blobs API receives encoding=base64 and b64(content).
+
+    Regression for issue #31: the previous hardcoded utf-8 path stored
+    the base64 text of a binary file as the file body, bloating it ~4/3
+    and breaking image rendering.
+    """
+    import base64 as _b64
+
+    captured = []
+    monkeypatch.setattr(bp, "_gh_api", _capture_gh_api(captured))
+
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    sha = bp.publish_page("owner/repo", "img.png", png_bytes)
+    assert sha == "new_commit_sha"
+
+    blob_calls = [c for c in captured if c[1].endswith("/git/blobs")]
+    assert len(blob_calls) == 1
+    payload = blob_calls[0][2]
+    assert payload["encoding"] == "base64"
+    assert _b64.b64decode(payload["content"]) == png_bytes
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
