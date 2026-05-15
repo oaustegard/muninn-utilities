@@ -278,8 +278,22 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
             )
 
 
-def publish_page(repo, path, content, message=None):
-    """Commit a single file to GitHub Pages repo. Returns commit SHA."""
+def publish_page(repo, path, content, message=None, binary=False):
+    """Commit a single file to GitHub Pages repo. Returns commit SHA.
+
+    Args:
+        repo: GitHub repository in "owner/repo" format.
+        path: File path in the repository.
+        content: File content. For text files, pass a string. For binary
+            files, pass raw bytes and set `binary=True` (content will be
+            base64-encoded for the GitHub API).
+        message: Commit message. Defaults to "Publish {path}".
+        binary: If True, content is treated as raw bytes and encoded as
+            base64 for the GitHub blobs API. Use this for PNGs, PDFs, and
+            other non-text assets. Prior to this fix, all content was
+            hardcoded to utf-8 which corrupted binary files.
+    """
+    import base64
     if not message:
         message = f"Publish {path}"
 
@@ -288,8 +302,13 @@ def publish_page(repo, path, content, message=None):
     commit = _gh_api("GET", f"/repos/{repo}/git/commits/{ref_sha}")
     tree_sha = commit["tree"]["sha"]
 
-    blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
-                    {"content": content, "encoding": "utf-8"})
+    if binary:
+        blob_content = base64.b64encode(content).decode()
+        blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
+                       {"content": blob_content, "encoding": "base64"})
+    else:
+        blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
+                       {"content": content, "encoding": "utf-8"})
 
     tree = _gh_api("POST", f"/repos/{repo}/git/trees", {
         "base_tree": tree_sha,
