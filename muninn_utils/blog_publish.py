@@ -41,6 +41,7 @@ but does NOT raise. Callers that need a hard error on bsky failure should
 inspect `result["detached_failures"]`.
 """
 
+import base64
 import json
 import os
 import re
@@ -279,17 +280,31 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
 
 
 def publish_page(repo, path, content, message=None):
-    """Commit a single file to GitHub Pages repo. Returns commit SHA."""
+    """Commit a single file to GitHub Pages repo. Returns commit SHA.
+
+    `content` may be `str` (committed as UTF-8 text) or `bytes`
+    (base64-encoded for the blobs API so binary files round-trip without
+    corruption). See issue oaustegard/muninn-utilities#31 — passing the
+    base64 text of a PNG with utf-8 encoding stored the base64 string
+    as the file body, bloating it ~4/3 and breaking image rendering.
+    """
     if not message:
         message = f"Publish {path}"
+
+    if isinstance(content, bytes):
+        blob_payload = {
+            "content": base64.b64encode(content).decode("ascii"),
+            "encoding": "base64",
+        }
+    else:
+        blob_payload = {"content": content, "encoding": "utf-8"}
 
     ref = _gh_api("GET", f"/repos/{repo}/git/refs/heads/main")
     ref_sha = ref["object"]["sha"]
     commit = _gh_api("GET", f"/repos/{repo}/git/commits/{ref_sha}")
     tree_sha = commit["tree"]["sha"]
 
-    blob = _gh_api("POST", f"/repos/{repo}/git/blobs",
-                    {"content": content, "encoding": "utf-8"})
+    blob = _gh_api("POST", f"/repos/{repo}/git/blobs", blob_payload)
 
     tree = _gh_api("POST", f"/repos/{repo}/git/trees", {
         "base_tree": tree_sha,
