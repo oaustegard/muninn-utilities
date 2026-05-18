@@ -318,6 +318,35 @@ def _exec_batch(statements: list) -> list:
                 f"HTTP {resp.status_code} from Turso pipeline endpoint "
                 f"(likely egress proxy, not Turso): {preview!r}"
             )
+        # 4xx: Turso returns {"error": "..."} (no "results" key) on auth and
+        # client errors. Raise a clear message here rather than letting the
+        # caller fail with cryptic KeyError: 'results' three lines down.
+        # Not retriable — 401 won't fix itself by waiting.
+        #
+        # Auth detection notes:
+        #   - 401/403 by status code (revoked / expired token)
+        #   - 400 by body content (malformed JWT — Turso returns 400, not 401,
+        #     with body {"error": "JWT error: ..."}). Match by body so future
+        #     auth flavors ("Unauthorized", etc.) are also caught.
+        if 400 <= resp.status_code < 500:
+            preview = (resp.text or '')[:200]
+            body_lower = preview.lower()
+            looks_like_auth = (
+                resp.status_code in (401, 403) or
+                'jwt' in body_lower or
+                'unauthorized' in body_lower or
+                'auth' in body_lower
+            )
+            if looks_like_auth:
+                raise RuntimeError(
+                    f"HTTP {resp.status_code} auth error from Turso — "
+                    f"TURSO_TOKEN is likely revoked, rotated, malformed, or for the wrong DB. "
+                    f"Refresh from the Turso dashboard and update /mnt/project/turso.env. "
+                    f"Body: {preview!r}"
+                )
+            raise RuntimeError(
+                f"HTTP {resp.status_code} client error from Turso: {preview!r}"
+            )
         try:
             return resp.json()
         except ValueError as e:
@@ -883,6 +912,35 @@ def _exec(sql, args=None, parse_json: bool = True):
             raise RuntimeError(
                 f"HTTP {resp.status_code} from Turso pipeline endpoint "
                 f"(likely egress proxy, not Turso): {preview!r}"
+            )
+        # 4xx: Turso returns {"error": "..."} (no "results" key) on auth and
+        # client errors. Raise a clear message here rather than letting the
+        # caller fail with cryptic KeyError: 'results' three lines down.
+        # Not retriable — 401 won't fix itself by waiting.
+        #
+        # Auth detection notes:
+        #   - 401/403 by status code (revoked / expired token)
+        #   - 400 by body content (malformed JWT — Turso returns 400, not 401,
+        #     with body {"error": "JWT error: ..."}). Match by body so future
+        #     auth flavors ("Unauthorized", etc.) are also caught.
+        if 400 <= resp.status_code < 500:
+            preview = (resp.text or '')[:200]
+            body_lower = preview.lower()
+            looks_like_auth = (
+                resp.status_code in (401, 403) or
+                'jwt' in body_lower or
+                'unauthorized' in body_lower or
+                'auth' in body_lower
+            )
+            if looks_like_auth:
+                raise RuntimeError(
+                    f"HTTP {resp.status_code} auth error from Turso — "
+                    f"TURSO_TOKEN is likely revoked, rotated, malformed, or for the wrong DB. "
+                    f"Refresh from the Turso dashboard and update /mnt/project/turso.env. "
+                    f"Body: {preview!r}"
+                )
+            raise RuntimeError(
+                f"HTTP {resp.status_code} client error from Turso: {preview!r}"
             )
         try:
             return resp.json()
