@@ -24,13 +24,34 @@ Sleep runs whenever dispatched — no cadence skip. The `policy['last_run']` is 
 3. Check for stale memories — old observations that are no longer relevant.
 4. Delete noise. Be decisive — but honor any "preserve aggressively" preferences from Phase 0.
 
-### Phase 2: Synthesis
+### Phase 2: Synthesis (growth)
 
 1. Use `recall` with broad searches to surface related memories that could be consolidated.
 2. Run `consolidate(dry_run=true)` on common tag clusters to see what can be merged.
 3. If consolidation looks beneficial, run it for real.
 4. Look for memories that reference each other but aren't connected. Consider superseding them with a synthesis.
 5. Check the experience layer — are there repeated patterns in session logs that should become procedures?
+
+### Phase 2.5: Retirement pass — corrective scar tissue
+
+Per Oskar 2026-05-22: "memories are getting filled up with corrective scar tissue." This phase exists to retire diagnostic memories whose lesson is now absorbed by a stable procedure. Without it, sleep tends to default to "light session" — every Phase 1/2 check returns empty while ops-creep silently accumulates.
+
+1. Scan candidates. Look for memories tagged with any of: `failure-mode`, `failure-modes`, `failure-pattern`, `anti-pattern`, `root-cause`, `repeated-failure`, `recurring-failure`, `ceremonial-skill-use`, `confabulation-cascade`, `correction`, `footgun-fix`, `correction-acknowledgment-trap`. Also: memories whose summary opens with "DIAGNOSED", "ROOT CAUSE", "X FAILURE", "POSTMORTEM".
+
+2. For each candidate (cap session work at ~20 to keep judgment sharp), assess ABSORPTION:
+   - Does the ops entry / skill / trigger it spawned exist and look stable? (Grep for the ops key in `config_get('ops-topics')` or check the skill in `/mnt/skills/user/`.)
+   - Has the same failure pattern surfaced in any memory from the last 30 days? (`recall` on the diagnostic's distinctive phrase.)
+   - Is the procedure that exists sufficient audit on its own?
+   ABSORBED = first YES, second NO, third YES.
+
+3. Action on absorbed memories:
+   - If a living-reference synthesis exists for the topic: `supersede(diagnostic_id, ...)` into it.
+   - Otherwise: `forget(diagnostic_id, reason="absorbed; lesson codified in <ops-entry-or-skill>")`.
+   - Bias toward retirement. The procedure that exists IS the lesson; the postmortem trail is not load-bearing.
+
+4. Per-session budget: retire 5–15 items in a productive sleep. If zero candidates surface after scanning the listed tags, that's an audit signal, not a no-op — surface "scar-tissue scan came up empty, verify tag coverage" in the session summary.
+
+5. Log every retirement in the session summary (id, reason, target ops/skill) so the trajectory is auditable and a future session can revisit if a lesson re-fails.
 
 ### Phase 3: Diagnostics
 
