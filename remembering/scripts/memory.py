@@ -1115,11 +1115,19 @@ def forget(memory_id: str) -> bool:
     return True
 
 
+# Valid drift classifications for rule changes. Borrowed from Yep's framing
+# (drknowhow/Yep, 2026-05-22 comparison). Catches the "I think I'm clarifying
+# but I'm actually broadening" failure mode by forcing the author to name the
+# direction of the change.
+VALID_DRIFT_CLASSES = ("additive", "narrowing", "broadening", "replacing")
+
+
 # @lat: [[memory#Core Operations]]
 @accept_aliases
 def supersede(original_id: str, summary: str, type: str, *,
               tags: list = None, conf: float = None,
-              priority: int = None) -> "MemoryWriteId":
+              priority: int = None,
+              drift_class: str = None) -> "MemoryWriteId":
     """Create a patch that supersedes an existing memory. Type required. Returns new memory ID.
 
     Supports partial IDs for original_id (v5.1.0, #244).
@@ -1137,7 +1145,19 @@ def supersede(original_id: str, summary: str, type: str, *,
             ``remember()`` applies: ``type="procedure"`` with effective priority 0
             is bumped to 1 so procedural memories survive pruning. Clamped to
             ``[-1, 2]``.
+        drift_class: Optional change classification for procedure supersedes.
+            One of ``additive`` (new scope added), ``narrowing`` (existing scope
+            made more specific), ``broadening`` (existing scope expanded), or
+            ``replacing`` (wholesale replacement). When provided, appended to
+            tags as ``drift-class-<value>`` for retrospection ("when did I
+            broaden X?") and to catch the "I think I'm clarifying but I'm
+            actually broadening" failure mode. Validated; raises ValueError on
+            invalid value. No effect on non-procedure types but allowed there
+            for consistency.
 
+    v5.13.0: Added ``drift_class`` kwarg. Borrowed from Yep's rule-change
+             framing (drknowhow/Yep, 2026-05-22). Optional; appended as a tag
+             when present so retrieval can filter on change direction.
     v5.12.0: Added ``priority`` kwarg matching ``remember()``. Defaults to
              inheriting the original's priority. Previous behavior hardcoded
              priority to 0, silently downgrading procedure-type memories from
@@ -1146,6 +1166,19 @@ def supersede(original_id: str, summary: str, type: str, *,
     v5.0.0: Removed local cache operations. Turso-only.
     v3.3.0: Uses _exec_batch for single HTTP request (2x efficiency improvement).
     """
+    # Validate drift_class first — fail fast before any DB work.
+    if drift_class is not None:
+        if drift_class not in VALID_DRIFT_CLASSES:
+            raise ValueError(
+                f"Invalid drift_class '{drift_class}'. "
+                f"Must be one of {VALID_DRIFT_CLASSES}."
+            )
+        # Append as tag for downstream retrieval. Idempotent — don't double-add
+        # if caller already included the canonical tag.
+        tags = list(tags) if tags else []
+        drift_tag = f"drift-class-{drift_class}"
+        if drift_tag not in tags:
+            tags.append(drift_tag)
     original_id = _resolve_memory_id(original_id)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     new_id = str(uuid.uuid4())

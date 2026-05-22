@@ -62,7 +62,8 @@ from .hints import recall_hints
 from .config import (
     config_get, config_set, config_delete,
     config_set_boot_load, config_set_priority,  # v3.6.0: priority management
-    config_list
+    config_list,
+    set_rule,  # v5.13.0: drift-classified rule changes
 )
 
 # Import boot layer
@@ -103,6 +104,7 @@ __all__ = [
     "failed_writes", "retry_failed_writes", "clear_failed_writes",  # bg-write hardening (#622)
     "recall_since", "recall_between",  # date-filtered queries
     "config_get", "config_set", "config_delete", "config_list", "config_set_boot_load", "config_set_priority",  # config
+    "set_rule",  # v5.13.0: drift-classified rule changes
     "profile", "ops", "boot", "journal", "journal_recent", "journal_prune",  # boot & journal
     "detect_github_access",  # v3.5.0: GitHub access detection
     "github_api",  # v3.8.0: Unified GitHub API interface (#240)
