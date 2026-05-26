@@ -1,38 +1,41 @@
 # snapshot
 
-Build a static snapshot of Muninn packaged as a **claude-skill**. Pulls config
-and memories from the live Turso DB, filters out personal-project scope,
-clusters surviving memories by topic tag, and writes a `muninn-snapshot/`
-skill directory ready to drop into `claude-skills` (or any user-skill mount).
+Build a static snapshot of Muninn as a **claude-skill**. Pulls config and
+memories from the live Turso DB, filters out personal-project scope, clusters
+surviving memories by topic tag, and writes a `muninn-snapshot/` skill
+directory shaped per the `crafting-instructions` skill conventions.
 
 ## Architecture
 
-The snapshot is shaped as a skill, not as project knowledge:
+The snapshot is a claude-skill with progressive disclosure across three tiers.
+What's progressive is what genuinely loads on-demand — not anything that
+would be needed every time the skill activates.
+
+**Tier 1 — metadata** (yaml frontmatter): name + description. Always
+loaded; controls activation.
+
+**Tier 2 — SKILL.md body** (~400 lines): triggers, full identity, full
+operating discipline, craft trigger index, memory bridge table, provenance.
+Loaded when the skill activates. Identity and operating live here because
+Muninn's persona and operating discipline are needed every time the skill
+is active — moving them to references/ and saying "always load these too"
+would be disclosure theatre, not progressive disclosure.
+
+**Tier 3 — references/** (genuinely on-demand):
+- `craft.md` — universal craft triggers (skill-authoring, procedure-authoring,
+  backend-impl, cross-frame-retrieval). Each has explicit firing conditions.
+- `memory-{tag}.md` × 55 — memory clusters. Load only the topic(s) the
+  conversation touches, via the bridge table in SKILL.md.
 
 ```
 muninn-snapshot/
-  SKILL.md          # yaml frontmatter + persona + values + triggers
-  manifest.md       # human/Claude-readable bridge: topic -> reference file
-  manifest.json     # machine-readable provenance (built_at, stats, refs list)
+  SKILL.md                 # ~400 lines: persona + operating + bridge
   references/
-    INDEX.md
-    agents-1.md     # cluster files; one .md per primary topic tag
-    paper-insight-1.md
-    anthropic.md
+    craft.md               # when designing skills, procedures, backends
+    memory-agents-1.md     # 55 memory cluster files
+    memory-paper-insight-1.md
     ...
 ```
-
-When the destination Claude loads the skill, it reads `SKILL.md` (voice, values,
-triggers, operating discipline). The body points at `manifest.md`, which lists
-every reference file with primary tag and theme labels — that is the bridge.
-Claude reads the bridge to decide which specific reference(s) to load via
-the `view` tool, then synthesizes.
-
-The point of this shape vs the previous project-instruction + KB layout:
-progressive disclosure. The earlier architecture loaded the entire KB into
-every conversation because the corpus was small enough for Claude.ai to "just
-read everything" rather than indexing. As a skill, the body loads when the
-skill triggers; references load only when the bridge points at them.
 
 ## Usage
 
@@ -41,31 +44,23 @@ python3 -m snapshot.build --out /home/claude/snapshot-out
 ```
 
 Output: `out_dir/muninn-snapshot/` (the skill directory) plus
-`muninn-snapshot.zip` as a sibling (the skill ready to drop wherever the
-destination expects user skills).
+`muninn-snapshot.zip` as a sibling.
 
 ## Installing in the destination
 
-The exact mechanism depends on how the destination loads user skills. If the
-destination fetches a skills repo at boot (similar to how live Muninn pulls
-`oaustegard/claude-skills`), add the skill there. If the destination uses
-Claude.ai project knowledge, upload the contents of `muninn-snapshot/` into
-project files — SKILL.md acts as entry point, manifest.md as discovery bridge.
-
-The destination's project instruction can be minimal — a single line:
-*"You have a `muninn-snapshot` skill; consult it when working on topics in
-its scope."* The skill body carries the persona content.
+Drop the `muninn-snapshot/` directory into wherever the destination loads
+user skills. The skill is designed to be user-invoked. The destination's
+project instruction can be minimal — the skill carries persona and triggers.
 
 ## What gets filtered
 
-1. **Turso-dependent ops** — `remember()` / `recall()` / `config_get()`, recall
-   vocabulary, refs semantics, proxy retry pattern. Destination uses
-   Claude.ai's native memory instead.
+1. **Turso-dependent ops** — `remember()` / `recall()` / `config_get()`,
+   recall vocabulary, refs semantics, proxy retry pattern.
 2. **Personal-project scope** — austegard.com, muninn.austegard.com, aeyu.io,
-   Bluesky, Strava, Norway, perch/fly mechanics, hub-spoke GitHub workflow,
-   CCotw handoffs, muninns-inbox.
+   Bluesky channels, Strava, Norwegian-politics topic, perch/fly mechanics,
+   hub-spoke GitHub workflow, CCotw handoffs, muninns-inbox.
 3. **Hard-drop tokens in bodies** — credentials, emails, JWT, GitHub PATs,
-   `muninn-utilities`/`claude-workspace` references. Whole memory dropped.
+   heavy `muninn-utilities` / `claude-workspace` references.
 
 ## Body redactor — two tiers
 
@@ -77,29 +72,31 @@ its scope."* The skill body carries the persona content.
 
 ## How clustering works
 
-1. Skip meta tags (dates, PR/issue numbers, generic `correction`/`preference`).
-2. Canonicalize via `TAG_ALIASES`.
-3. Pick highest-frequency candidate as primary.
-4. Singletons re-route to second-choice with >=2-member clusters.
+1. Skip meta tags (dates, PR/issue numbers, generic descriptors).
+2. Canonicalize via `TAG_ALIASES` (e.g. `agentic` -> `agents`).
+3. Pick highest-frequency candidate tag as primary.
+4. Singletons re-route to second-choice tags with >=2-member clusters.
 5. `_misc` catches non-clusterable memories.
 
 Cluster files cap at 30 memories; oversized split chronologically into
-`{tag}-1.md`, `{tag}-2.md`, ...
+`memory-{tag}-1.md`, `memory-{tag}-2.md`, ...
 
 ## Extending the filters
 
 All static data lives in `config.py`:
 
-- `PROFILE_KEEP` / `OPS_KEEP` — config keys included in SKILL.md
+- `PROFILE_KEEP` / `OPS_KEEP` / `CRAFT_KEYS` — config key routing.
+  `OPS_KEEP - CRAFT_KEYS` inlines into SKILL.md operating section;
+  `CRAFT_KEYS` goes to references/craft.md.
 - `TAG_EXCLUDE` / `TAG_EXCLUDE_PATTERNS` — drop whole memory
-- `TAG_ALIASES` — canonicalize synonyms (e.g. `agentic` -> `agents`)
+- `TAG_ALIASES` — canonicalize synonyms
 - `TAG_META` / `TAG_META_PATTERNS` — can't be cluster primary
 - `HARD_DROP_PATTERNS` / `SOFT_REDACT_PATTERNS` / `HARD_SENTENCE_DROP_PATTERNS`
-- `SKILL_FRONTMATTER_TEMPLATE` — yaml description controls when the skill triggers
-- `INSTRUCTION_PREAMBLE_TEMPLATE` / `INSTRUCTION_FOOTER_TEMPLATE`
+- `SKILL_FRONTMATTER_TEMPLATE` — controls activation triggers
+- `SKILL_BODY_TEMPLATE` — SKILL.md shell with identity+operating placeholders
+- `CRAFT_REFERENCE_HEADER` — wraps references/craft.md
 
-Per-entry rewrites (e.g. `boot-behavior` becomes "static snapshot — fresh
-context each session") live in `compose_instruction.py:_REWRITES`.
+Per-entry rewrites live in `compose_instruction.py:_REWRITES`.
 
 ## Module layout
 
@@ -108,12 +105,12 @@ snapshot/
   __init__.py
   README.md
   build.py                 # orchestrator + CLI entry
-  config.py                # static keep/exclude/redact data + templates
-  pull.py                  # Turso queries
+  config.py                # static data + skill templates
+  pull.py                  # Turso queries with tolerant tag parsing
   filter.py                # tag filter + body redactor + hard-drop
   cluster.py               # primary-tag picker + bucketing
-  compose_instruction.py   # SKILL.md body
-  compose_bridge.py        # manifest.md topic-to-reference bridge
-  kb.py                    # references/*.md cluster files + INDEX.md
+  compose_instruction.py   # SKILL.md with inlined persona + craft.md
+  compose_bridge.py        # memory bridge table embedded in SKILL.md
+  kb.py                    # memory-*.md cluster files
   example-output/          # sample run committed for inspection
 ```
