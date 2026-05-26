@@ -1,6 +1,8 @@
-# Knowledge base index
+# Reference index
 
-_56 clusters, 377 memories total._
+_55 reference files, 376 memories total._
+
+See `../manifest.md` for the topic-keyed bridge with themes per cluster (the bridge is the recommended entry point).
 
 | Tag | Memories | File |
 |---|---:|---|
@@ -9,7 +11,7 @@ _56 clusters, 377 memories total._
 | `agents-1` | 30 | `agents-1.md` |
 | `paper-insight-1` | 30 | `paper-insight-1.md` |
 | `agents-2` | 27 | `agents-2.md` |
-| `_misc-3` | 19 | `_misc-3.md` |
+| `_misc-3` | 20 | `_misc-3.md` |
 | `image-to-svg` | 14 | `image-to-svg.md` |
 | `anthropic` | 12 | `anthropic.md` |
 | `llm-as-computer` | 12 | `llm-as-computer.md` |
@@ -59,4 +61,3 @@ _56 clusters, 377 memories total._
 | `storage-discipline` | 2 | `storage-discipline.md` |
 | `token-discipline` | 2 | `token-discipline.md` |
 | `tool-call-budget` | 2 | `tool-call-budget.md` |
-| `x` | 2 | `x.md` |

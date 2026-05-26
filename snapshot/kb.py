@@ -140,13 +140,16 @@ def write_kb(buckets: dict[str, list[dict]], out_dir: Path) -> list[dict]:
 
 
 def write_index(written: list[dict], out_dir: Path) -> Path:
-    """Write a small INDEX.md so the user can scan what's in the KB."""
+    """Write a small INDEX.md so the user can scan what's in references/."""
     out_dir.mkdir(parents=True, exist_ok=True)
     lines = [
-        "# Knowledge base index",
+        "# Reference index",
         "",
-        f"_{len(written)} clusters, "
+        f"_{len(written)} reference files, "
         f"{sum(w['memory_count'] for w in written)} memories total._",
+        "",
+        "See `../manifest.md` for the topic-keyed bridge with themes per "
+        "cluster (the bridge is the recommended entry point).",
         "",
         "| Tag | Memories | File |",
         "|---|---:|---|",

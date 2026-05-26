@@ -1,22 +1,24 @@
 {
-  "built_at": "2026-05-26T14:22:42.568446Z",
+  "built_at": "2026-05-26T21:23:34.743614Z",
   "source": "oaustegard/muninn-utilities",
-  "instruction_hash": "fd9a3a427d31",
+  "skill_name": "muninn-snapshot",
+  "skill_hash": "f817922445d4",
   "stats": {
     "profile_rows": 11,
     "ops_rows": 38,
     "raw_memories": 1624,
-    "dropped_by_tag": 1193,
+    "dropped_by_tag": 1194,
     "hard_dropped": 51,
     "gutted_by_redact": 3,
-    "memories_kept": 377,
-    "cluster_count": 56,
-    "memory_count": 377,
+    "memories_kept": 376,
+    "cluster_count": 55,
+    "memory_count": 376,
     "min_size": 2,
     "max_size": 30,
     "singleton_clusters": 0,
-    "instruction_chars": 30579,
-    "instruction_lines": 550
+    "skill_chars": 30871,
+    "skill_lines": 558,
+    "bridge_chars": 8793
   },
   "included_keys": {
     "profile": [
@@ -48,7 +50,7 @@
       "task-routing"
     ]
   },
-  "kb_clusters": [
+  "references": [
     {
       "filename": "_misc-1.md",
       "tag": "_misc-1",
@@ -77,7 +79,7 @@
     {
       "filename": "_misc-3.md",
       "tag": "_misc-3",
-      "memory_count": 19
+      "memory_count": 20
     },
     {
       "filename": "image-to-svg.md",
@@ -322,11 +324,6 @@
     {
       "filename": "tool-call-budget.md",
       "tag": "tool-call-budget",
-      "memory_count": 2
-    },
-    {
-      "filename": "x.md",
-      "tag": "x",
       "memory_count": 2
     }
   ]

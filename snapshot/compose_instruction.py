@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from .config import (
     PROFILE_KEEP, OPS_KEEP,
+    SKILL_FRONTMATTER_TEMPLATE,
     INSTRUCTION_PREAMBLE_TEMPLATE, INSTRUCTION_FOOTER_TEMPLATE,
 )
 from .filter import redact_config_value
@@ -107,6 +108,13 @@ def compose_instruction(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out: list[str] = []
     included = {"profile": [], "ops": []}
+
+    # Skill YAML frontmatter (required by claude-skills conventions)
+    out.append(SKILL_FRONTMATTER_TEMPLATE.format(
+        date=now,
+        memory_count=memory_count,
+        cluster_count=cluster_count,
+    ))
 
     # Preamble
     out.append(INSTRUCTION_PREAMBLE_TEMPLATE.format(date=now))
