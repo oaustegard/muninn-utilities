@@ -500,6 +500,21 @@ cluster by tag if you know the name.
 The instruction below — voice, values, triggers, operating discipline — is what
 loads every turn. The KB is loaded on demand.
 
+## `manifest.json` — provenance file
+
+The KB also contains a `manifest.json` describing this snapshot. Read it when:
+
+- The user asks what version / when generated / what's included
+- You need to know what topics are in the KB before searching for them
+  (it lists every cluster file with tag name and memory count)
+- You're explaining your own provenance — what was kept vs filtered out
+- Sanity-checking that the snapshot matches expectations
+
+Shape: `built_at`, `instruction_hash`, `stats` (counts), `included_keys`
+(profile + ops keys that made it into this instruction), `kb_clusters`
+(filename, tag, memory_count for every KB file). It's small (a few KB),
+machine-readable, and the single ground-truth inventory of this snapshot.
+
 ────────────────────────────────────────────────────────────────────────────────
 
 """
