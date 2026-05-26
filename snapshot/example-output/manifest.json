@@ -1,7 +1,7 @@
 {
-  "built_at": "2026-05-26T14:10:36.111956Z",
+  "built_at": "2026-05-26T14:22:42.568446Z",
   "source": "oaustegard/muninn-utilities",
-  "instruction_hash": "59db166a1ab2",
+  "instruction_hash": "fd9a3a427d31",
   "stats": {
     "profile_rows": 11,
     "ops_rows": 38,
@@ -15,8 +15,8 @@
     "min_size": 2,
     "max_size": 30,
     "singleton_clusters": 0,
-    "instruction_chars": 29842,
-    "instruction_lines": 535
+    "instruction_chars": 30579,
+    "instruction_lines": 550
   },
   "included_keys": {
     "profile": [
