@@ -114,16 +114,23 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
     )
 
     # ── 7. Zip everything (ready to upload) ────────────────────────────────
+    # Write the archive OUTSIDE out_dir so make_archive's walk doesn't
+    # pick up a stale copy of the zip from a prior run. Also delete any
+    # pre-existing zip — make_archive silently fails to overwrite when
+    # the target was created by a different user (e.g. an earlier
+    # session's root-owned artifact).
+    zip_base = out_dir.parent / out_dir.name  # e.g. /home/claude/snapshot-out
+    stale_zip = zip_base.with_suffix(".zip")
+    if stale_zip.exists():
+        try:
+            stale_zip.unlink()
+        except (OSError, PermissionError) as e:
+            print(f"WARNING: could not remove stale zip {stale_zip}: {e}")
     zip_path = shutil.make_archive(
-        str(out_dir / "snapshot"),
+        str(zip_base),
         "zip",
         root_dir=out_dir,
-        # Don't include the zip itself
-        # make_archive uses root_dir; we exclude by post-deleting if needed
     )
-    # The above will recurse into out_dir but won't include the zip file
-    # because the file gets created AFTER walking — except when re-running.
-    # Defensive: ensure no double-nesting if the zip already existed.
 
     return {
         "out_dir": str(out_dir),
