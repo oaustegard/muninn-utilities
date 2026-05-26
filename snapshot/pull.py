@@ -6,12 +6,37 @@ established client.
 """
 
 from __future__ import annotations
+import ast
 import json
 from typing import Iterable
 
-# The boot script sets up sys.path so `scripts.turso` resolves to
-# muninn-utilities/remembering/scripts. Importing here piggybacks on that.
 from scripts.turso import _exec
+
+
+def _parse_tags(raw: str) -> list[str]:
+    """Parse a tags field tolerantly.
+
+    Some memories have tags as a proper JSON array. A handful have them as
+    a single JSON-encoded string whose value is a Python-repr list with
+    single quotes (e.g. `"['a', 'b']"`). Try json first, then
+    ast.literal_eval on the inner string, then bail.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(parsed, list):
+        return [t for t in parsed if isinstance(t, str)]
+    if isinstance(parsed, str):
+        try:
+            inner = ast.literal_eval(parsed)
+            if isinstance(inner, list):
+                return [t for t in inner if isinstance(t, str)]
+        except (ValueError, SyntaxError):
+            pass
+    return []
 
 
 def pull_profile() -> list[dict]:
@@ -65,8 +90,5 @@ def pull_memories(
 
     rows = _exec(sql, parse_json=False)
     for r in rows:
-        try:
-            r["tags"] = json.loads(r["tags"]) if r["tags"] else []
-        except (ValueError, TypeError):
-            r["tags"] = []
+        r["tags"] = _parse_tags(r["tags"])
     return rows

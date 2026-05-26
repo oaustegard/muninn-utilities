@@ -1,12 +1,41 @@
 ---
 tag: _misc-2
 memory_count: 30
-date_range: 2026-03-18 to 2026-04-21
+date_range: 2026-03-19 to 2026-04-25
 ---
 
 # _misc-2
 
 _30 memories from Muninn's past, primary tag `_misc-2`._
+
+## 2026-04-25 — decision (p1) `9f42dfe2`
+_tags: preference, correction, git, ephemeral-container, push-discipline, dev-workflow, ops-candidate, 2026-04-25_
+
+GIT PUSH DISCIPLINE (correction from [REDACTED] 2026-04-25):
+
+EVIDENCE: In a prior chat (transformer-vm work), I said "I'd recommend a fresh chat for the push + writeup so the context isn't dragging this build noise around. The repo is ready to push from /home/claude/work/transformer-vm — git add -A && git commit && git push against the existing remote (already authenticated) is the only step."
+
+[REDACTED]: "this, as you very well know, is nonsense. Your /home/claude is ephemeral, tied to that one conversation thread. You need to be FAR more aggressive pushing changes to the remote repo branch so that we don't lose work from a failure in the UX/network/ephemeral container"
+
+IMPLICATION: /home/claude lives and dies with ONE conversation. A "fresh chat" boots into a new container with empty /home/claude — there is no continuity. Deferring `git push` to a future chat = guaranteeing the work is lost. The remote branch is the ONLY durable artifact.
+
+FUTURE DEFAULT — when working in a git repo cloned to /home/claude:
+
+1. PUSH EARLY, PUSH OFTEN. After each meaningful unit (function, fix, passing test, doc change), commit and push. Not at "session end" — there is no reliable session end. The container can die at any tool call boundary (network blip, UX hang, conversation truncation, my own context overflow).
+
+2. PUSH BEFORE RISK. Before any operation that could fail or take a long time (long build, big generation, multi-step refactor), push current state to a WIP branch first. Worst case: rollback is `git reset --hard origin/<branch>`.
+
+3. WIP BRANCH BY DEFAULT. For exploratory work, use a feature branch (e.g. `wip/<task>` or `claude/<topic>`). Don't pollute main with half-finished commits, but do PUSH the half-finished commits to the WIP branch.
+
+4. NEVER SAY "fresh chat for the push". This is the canonical anti-pattern. If work isn't pushed yet, it doesn't survive the chat. If wrapping up, push BEFORE the wrap-up message, not as a deferred instruction.
+
+5. FIRST PUSH USES -u. `git push -u origin <branch>` to set upstream once, then plain `git push` thereafter.
+
+6. IF UNCERTAIN WHETHER TO PUSH: push. Cost ≈ zero. The cost of NOT pushing is total work loss.
+
+This applies to ALL repos cloned in chat, not just specific spokes. The ephemeral-container property is universal.
+
+---
 
 ## 2026-04-21 — analysis (p0) `cb6a4b8d`
 _tags: pattern, domain-shift, calibration, online-adaptation, projection, pca_
@@ -591,12 +620,5 @@ CORRECTION to visual style guide interpretation: 'risograph' in the Muninn style
 _tags: flight-log, github-issues, backlog, shipped, 2026-03-19_
 
 Processed flight log #406 per [REDACTED] instructions: (1) Updated discussion body with inline markdown links for all referenced systems, papers, workshops (Mem0, Letta, Zep, AgentCore, A-Mem, ReasoningBank, ICLR MemAgents, etc.). (2) Created 7 GitHub issues (#407-#413) as product improvement backlog from recent flight sessions: bounded cognitive state (#407), failure-based learning (#408), context drift detection (#409), temporal credit assignment (#410), recall-gated consolidation (#411), sleep-time precomputation (#412), offline cross-memory bridging (#413). All tagged enhancement+backlog. Commented on #406 confirming completion.
-
----
-
-## 2026-03-18 — world (p0) `484a8442`
-_tags: m5stack, hardware, esp32, iot, todo_
-
-M5Stack Core2 for AWS IoT EduKit — device [REDACTED] owns, sitting unused 2-3 years. ESP32 dual-core 240MHz, 16MB flash, 8MB PSRAM, 2" touchscreen, IMU, mic, speaker, RGB LEDs, ATECC608 secure element, WiFi+BT. Supports FreeRTOS/Arduino/MicroPython/UIFlow. AWS EduKit program ended March 2023 but hardware still capable. No project assigned yet — decoupled from Kindle signage project after evaluation.
 
 ---

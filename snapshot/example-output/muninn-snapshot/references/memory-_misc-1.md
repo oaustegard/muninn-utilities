@@ -466,6 +466,29 @@ REVISED VERDICT: Don't fork our skill-creator. DO take the diagnostic vocabulary
 
 ---
 
+## 2026-04-28 — experience (p1) `8b53e4fd`
+_tags: x, twitter, x-twitter-access, ai-feed-peruse, research, fetching-blocked-urls, jina, nitter, 2026-04-28_
+
+X/Twitter access from Claude.ai container — empirical findings (2026-04-28):
+
+DEAD: nitter_scraper (github.com/dgnsrekt/nitter_scraper) — last push 2022-11, depends on abandoned requests-html. Pure parsing logic ~100 lines, but DOM-coupled to 2022 Nitter and unnecessary given the alternative below.
+
+DEAD: Public Nitter instances. Wiki explicitly asks not to scrape. Self-hosting requires registered X account tokens (Twitter actively hunts). Nitter was officially discontinued Feb 2024, resumed Feb 2025 with token-based access.
+
+WORKS: r.jina.ai → x.com directly (no auth needed for these paths):
+  - https://r.jina.ai/https://x.com/USERNAME → bio + ~10 latest posts as clean markdown
+  - https://r.jina.ai/https://x.com/USERNAME/status/ID → single tweet
+
+WALLED:
+  - https://r.jina.ai/https://x.com/search?q=... → login wall
+  - hashtag pages → same pattern (untested, inferred)
+
+IMPLICATION: An X-feed capability for this container looks like a Bsky-list-watcher (poll known accounts), NOT a firehose-search. AI discovery on X requires a curated account list, not keyword search.
+
+Proposed skill 'browsing-x': thin wrapper over fetching-blocked-urls pattern, ~80 lines, two functions (x_profile, x_tweet). No HTML scraping, no Nitter, no requests-html. Account list in config. Not yet implemented — pending [REDACTED] go.
+
+---
+
 ## 2026-04-27 — experience (p0) `a31f1542`
 _tags: health, sinus, maxillary-sinus, bacterial-sinusitis, double-sickening, 2026-04-27, medical-issue, left-side, see-doctor-today_
 
@@ -551,34 +574,5 @@ The test is trivial: run the same engine twice and diff. If identical, it's #2.
 Caught by [REDACTED] in transformer-vm PR #5: I labeled a BLAS-vs-naive divergence at sudoku token 1.67M an 'OpenBLAS dgemv reproducibility quirk' without testing reproducibility. Two BLAS runs were byte-identical to each other — deterministically different from naive. Not OpenBLAS-specific: Accelerate/MKL/any high-perf GEMV does the same. Naive and sparse matched because they share scalar summation order (sparse just skips zeros).
 
 Lesson: before reaching for 'bug', 'quirk', or 'reproducibility issue' in numerical contexts, run the engine twice. Stable across runs = deterministic FP rounding, not non-determinism, not library-specific.
-
----
-
-## 2026-04-25 — decision (p1) `9f42dfe2`
-_tags: preference, correction, git, ephemeral-container, push-discipline, dev-workflow, ops-candidate, 2026-04-25_
-
-GIT PUSH DISCIPLINE (correction from [REDACTED] 2026-04-25):
-
-EVIDENCE: In a prior chat (transformer-vm work), I said "I'd recommend a fresh chat for the push + writeup so the context isn't dragging this build noise around. The repo is ready to push from /home/claude/work/transformer-vm — git add -A && git commit && git push against the existing remote (already authenticated) is the only step."
-
-[REDACTED]: "this, as you very well know, is nonsense. Your /home/claude is ephemeral, tied to that one conversation thread. You need to be FAR more aggressive pushing changes to the remote repo branch so that we don't lose work from a failure in the UX/network/ephemeral container"
-
-IMPLICATION: /home/claude lives and dies with ONE conversation. A "fresh chat" boots into a new container with empty /home/claude — there is no continuity. Deferring `git push` to a future chat = guaranteeing the work is lost. The remote branch is the ONLY durable artifact.
-
-FUTURE DEFAULT — when working in a git repo cloned to /home/claude:
-
-1. PUSH EARLY, PUSH OFTEN. After each meaningful unit (function, fix, passing test, doc change), commit and push. Not at "session end" — there is no reliable session end. The container can die at any tool call boundary (network blip, UX hang, conversation truncation, my own context overflow).
-
-2. PUSH BEFORE RISK. Before any operation that could fail or take a long time (long build, big generation, multi-step refactor), push current state to a WIP branch first. Worst case: rollback is `git reset --hard origin/<branch>`.
-
-3. WIP BRANCH BY DEFAULT. For exploratory work, use a feature branch (e.g. `wip/<task>` or `claude/<topic>`). Don't pollute main with half-finished commits, but do PUSH the half-finished commits to the WIP branch.
-
-4. NEVER SAY "fresh chat for the push". This is the canonical anti-pattern. If work isn't pushed yet, it doesn't survive the chat. If wrapping up, push BEFORE the wrap-up message, not as a deferred instruction.
-
-5. FIRST PUSH USES -u. `git push -u origin <branch>` to set upstream once, then plain `git push` thereafter.
-
-6. IF UNCERTAIN WHETHER TO PUSH: push. Cost ≈ zero. The cost of NOT pushing is total work loss.
-
-This applies to ALL repos cloned in chat, not just specific spokes. The ephemeral-container property is universal.
 
 ---

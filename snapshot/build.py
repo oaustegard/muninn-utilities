@@ -1,26 +1,26 @@
-"""Build a Muninn snapshot for use in another Claude.ai project.
+"""Build a Muninn snapshot as a claude-skill.
 
-Usage from Python:
+Output layout:
+    out_dir/
+      muninn-snapshot/
+        SKILL.md                  ← entry point: triggers + quick-load + bridge
+        references/
+          identity.md             ← full persona (voice, values, tensions, ...)
+          operating.md            ← full operating imperatives + behavior
+          craft.md                ← universal craft triggers
+          memory-{tag}.md ...     ← memory clusters
+    muninn-snapshot.zip            ← the skill packaged for download/install
+
+Usage:
     from snapshot.build import build_snapshot
     result = build_snapshot(out_dir="/home/claude/snapshot-out")
 
-Usage from CLI:
+    # or CLI:
     python3 -m snapshot.build --out /home/claude/snapshot-out
-
-Result dict shape:
-    {
-        "out_dir": str,
-        "instruction_path": str,
-        "kb_dir": str,
-        "manifest_path": str,
-        "zip_path": str,
-        "stats": {...},
-    }
 """
 
 from __future__ import annotations
 import argparse
-import hashlib
 import json
 import shutil
 from datetime import datetime, timezone
@@ -33,8 +33,17 @@ from .filter import (
     redact_and_filter_memories,
 )
 from .cluster import cluster_by_primary_tag, cluster_stats
-from .compose_instruction import compose_instruction
-from .kb import write_kb, write_index
+from .compose_instruction import (
+    compose_skill_md,
+    compose_identity_md,
+    compose_operating_md,
+    compose_craft_md,
+)
+from .compose_bridge import compose_bridge_table
+from .kb import write_kb
+
+
+SKILL_NAME = "muninn-snapshot"
 
 
 def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
@@ -44,8 +53,10 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
 
-    kb_dir = out_dir / "knowledge_base"
-    kb_dir.mkdir()
+    skill_dir = out_dir / SKILL_NAME
+    skill_dir.mkdir()
+    refs_dir = skill_dir / "references"
+    refs_dir.mkdir()
 
     # ── 1. Pull from DB ────────────────────────────────────────────────────
     profile_rows = pull_profile()
@@ -76,62 +87,72 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
     buckets = cluster_by_primary_tag(body_kept)
     cluster_summary = cluster_stats(buckets)
 
-    # ── 4. Write KB cluster files + index ───────────────────────────────────
-    written = write_kb(buckets, kb_dir)
-    index_path = write_index(written, kb_dir)
+    # ── 4. Write memory cluster files to references/ ────────────────────────
+    written = write_kb(buckets, refs_dir)
 
-    # ── 5. Compose project instruction ──────────────────────────────────────
-    instruction_text, included_keys = compose_instruction(
-        profile_rows,
-        ops_rows,
-        ops_topics,
+    # ── 5. Compose references/identity.md, operating.md, craft.md ───────────
+    identity_text, identity_keys = compose_identity_md(profile_rows)
+    operating_text, operating_keys = compose_operating_md(ops_rows)
+    craft_text, craft_keys = compose_craft_md(ops_rows)
+
+    (refs_dir / "identity.md").write_text(identity_text, encoding="utf-8")
+    (refs_dir / "operating.md").write_text(operating_text, encoding="utf-8")
+    (refs_dir / "craft.md").write_text(craft_text, encoding="utf-8")
+
+    # ── 6. Compose SKILL.md (with bridge table embedded) ────────────────────
+    bridge_table = compose_bridge_table(buckets, written)
+    skill_text = compose_skill_md(
+        profile_count=len(identity_keys),
+        ops_count=len(operating_keys) + len(craft_keys),
         cluster_count=cluster_summary["cluster_count"],
         memory_count=cluster_summary["memory_count"],
+        bridge_table=bridge_table,
     )
-    instruction_path = out_dir / "PROJECT_INSTRUCTION.md"
-    instruction_path.write_text(instruction_text, encoding="utf-8")
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text(skill_text, encoding="utf-8")
 
-    # ── 6. Manifest ─────────────────────────────────────────────────────────
-    manifest = {
-        "built_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": "oaustegard/muninn-utilities",
-        "instruction_hash": hashlib.sha256(
-            instruction_text.encode("utf-8")
-        ).hexdigest()[:12],
-        "stats": {
-            **pull_stats,
-            **filter_stats,
-            **cluster_summary,
-            "instruction_chars": len(instruction_text),
-            "instruction_lines": instruction_text.count("\n") + 1,
-        },
-        "included_keys": included_keys,
-        "kb_clusters": written,
-    }
-    manifest_path = out_dir / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=False), encoding="utf-8"
-    )
-
-    # ── 7. Zip everything (ready to upload) ────────────────────────────────
+    # ── 7. Zip the skill directory ──────────────────────────────────────────
+    # Write the archive OUTSIDE out_dir so make_archive's walk doesn't pick
+    # up a stale copy. Also delete any pre-existing zip — make_archive
+    # silently fails to overwrite when the target was created by a
+    # different user.
+    zip_base = out_dir.parent / SKILL_NAME
+    stale_zip = zip_base.with_suffix(".zip")
+    if stale_zip.exists():
+        try:
+            stale_zip.unlink()
+        except (OSError, PermissionError) as e:
+            print(f"WARNING: could not remove stale zip {stale_zip}: {e}")
     zip_path = shutil.make_archive(
-        str(out_dir / "snapshot"),
+        str(zip_base),
         "zip",
         root_dir=out_dir,
-        # Don't include the zip itself
-        # make_archive uses root_dir; we exclude by post-deleting if needed
+        base_dir=SKILL_NAME,
     )
-    # The above will recurse into out_dir but won't include the zip file
-    # because the file gets created AFTER walking — except when re-running.
-    # Defensive: ensure no double-nesting if the zip already existed.
+
+    stats = {
+        **pull_stats,
+        **filter_stats,
+        **cluster_summary,
+        "skill_chars": len(skill_text),
+        "skill_lines": skill_text.count("\n") + 1,
+        "identity_chars": len(identity_text),
+        "operating_chars": len(operating_text),
+        "craft_chars": len(craft_text),
+    }
 
     return {
         "out_dir": str(out_dir),
-        "instruction_path": str(instruction_path),
-        "kb_dir": str(kb_dir),
-        "manifest_path": str(manifest_path),
+        "skill_dir": str(skill_dir),
+        "skill_path": str(skill_path),
+        "refs_dir": str(refs_dir),
         "zip_path": zip_path,
-        "stats": manifest["stats"],
+        "stats": stats,
+        "included_keys": {
+            "identity": identity_keys,
+            "operating": operating_keys,
+            "craft": craft_keys,
+        },
     }
 
 
@@ -139,7 +160,7 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
 
 def _cli():
     p = argparse.ArgumentParser(
-        description="Build a Muninn snapshot for another Claude.ai project."
+        description="Build a Muninn snapshot as a claude-skill."
     )
     p.add_argument(
         "--out",
