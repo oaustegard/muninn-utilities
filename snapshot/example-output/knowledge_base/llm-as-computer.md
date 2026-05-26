@@ -1,39 +1,56 @@
 ---
 tag: llm-as-computer
-memory_count: 7
+memory_count: 12
 date_range: 2026-03-12 to 2026-04-24
 ---
 
 # llm-as-computer
 
-_7 memories from Muninn's past, primary tag `llm-as-computer`._
+_12 memories from Muninn's past, primary tag `llm-as-computer`._
 
-## 2026-04-24 — decision (9d3c0270)
-_tags: lac, blog-writing, audience-analysis, polynomial-evaluator, ff_symbolic, framing, 2026-04-24, eml-sr_
+## 2026-04-24 — decision (p1) `a5353091`
+_tags: issue-95, issue-100, pr-101, poly-compiler, property-testing, compiler-bug, copy_var, test-authorship, 2026-04-23_
 
-FFN-as-polynomial-evaluator framing — audience diagnosis for LAC writing.
-
-The claim "the feed-forward layer of a hand-compiled transformer is, demonstrably, a polynomial evaluator" lands as crickets because:
-1. "Polynomial evaluator" reads as weaker than "universal approximator" — sounds like a demotion
-2. "Hand-compiled" cues toy project — undercuts the structural claim
-3. "Demonstrably" sounds defensive — readers not in the fight have no side
-
-Real audiences (ranked by who should care):
-- Mech-interp / circuits: hand-compiled version = candidate functional form for what learned FFN does in SAE-feature coords
-- Compilation-to-transformer (RASP/Tracr/Percepta descendants): polynomial evaluator = ALU spec; ff_symbolic.py is the artifact
-- Symbolic regression (his own eml-sr): bridge concept — trained FFN = polynomial regression in learned basis; explains where additive distillation breaks (multiplicative catalog rows)
-- General ML readers wondering about FFN widths: degree × variables gives quantitative story
-
-The missing explainer has three beats:
-1. Undeniable math: W2·sigma(W1 x+b1)+b2 with sigma(z)=z^2 computes degree-2 polynomial EXACTLY, not approximates. Stack n → degree 2^n.
-2. Correspondence: coefficients are rational functions of weights — you can read them off. ff_symbolic.py IS the reading-off (running code = "demonstrably")
-3. Stake named: hand-compiled = known polynomial; trained = discovered polynomial in learned basis. Same function class. Interp + distillation + compilation = same problem dressed differently.
-
-Crickets diagnosis: claim reads as definition when it needs to read as unification. Without "these are all the same object" beat, nothing to care about.
+llm-as-computer #95 (X3b property tests): opened PR #101, filed companion bug #100. Added TestRoundTripProperty (N=100 seeded random polys, 1-4 vars, deg 1-3, coeffs [-5,5], contiguous vars from 0, no constant term), TestEdgeCases, TestGeneratorReproducibility. Result: 60/100 random seeds + 3 edge cases fail — exposed real bug in poly_compiler._CompilerContext.copy_var: depth>2 ROT/SWAP loop never surfaces the target variable. x0+x1+x2+x3 (one of #95's own edge cases) compiles to 3*x2+x3. n_vars<=2 works; n_vars>=3 breaks. PR left without xfail markers — failing tests are the point, block merging until compiler fixed. Existing #94 tests (114) still pass; #94 passed only because every hand-picked case was <=2 vars. Pattern: property testing found a bug class unit testing missed.
 
 ---
 
-## 2026-03-23 — procedure (52b32878)
+## 2026-03-25 — procedure (p1) `c0dd2b13`
+_tags: executor, step-limit, issue-52_
+
+Fixed llm-as-computer executor step limits: default raised from 50K to 5M in both executor.mojo and runner.py. Added --max-steps N CLI flag to Mojo binary. runner.py now passes max_steps through and scales subprocess timeout. Changes are ephemeral (in /mnt/skills/user/), need to be committed to repo via issue or PR. Issue #52 tracks the benchmarking work.
+
+---
+
+## 2026-03-25 — world (p0) `853f5c06`
+_tags: benchmark, mojo, percepta, issue-52, 2026-03-24_
+
+LLM-as-computer #52 benchmark results (2026-03-25): Mojo executor 67-126M steps/sec, Python fallback 2.1-3.1M steps/sec. Both O(1)/step at all scales (10K, 100K, 1M). 1.2M steps in 17ms Mojo, 561ms Python. Memory ~65 bytes/step in Python (65MB at 1M). Speedup 28-44x constant across scales — both use dict-based lookup, not attention scan. Hull-accelerated attention path (NumPy/TorchExecutor) NOT yet benchmarked at scale. Remaining: torch comparisons, bubble sort/primes (need locals/memory opcodes), Mojo memory profiling.
+
+---
+
+## 2026-03-24 — world (p1) `c98f5c0b`
+_tags: shorthand, lac, container_
+
+SHORTHAND: 'lac' = 'llm-as-computer' — refers to the containerized compute environment (the Linux container Claude operates in during conversations). Usage: 'redo X against lac' means 'adapt X for the container environment'.
+
+---
+
+## 2026-03-24 — decision (p1) `50639a78`
+_tags: decision, architecture, issue-28, restructure_
+
+llm-as-computer restructure (#28) filed as prerequisite for Tier 2 (#9/#24-#27). Creates 3 flat files: isa.py (~400L, all constants/types/embedding/attention), executor.py (~600L, flattened NumPyExecutor/CompiledModel/TorchExecutor), programs.py (~300L, all generators). Phase files preserved as research history. Dependency chain: #28 → #24 → #25 → #26 → #27. Root cause: CCotW timed out reading 2900-line phase14 piecemeal before writing any code.
+
+---
+
+## 2026-03-24 — decision (p1) `df1b8fd7`
+_tags: decision, architecture, issue-9_
+
+llm-as-computer #9 (Tier 2: locals, linear memory, function calls) decomposed into 4 sub-issues #24-#27 for CCotW implementation. Decision: CCotW over Claude.ai because work is pure Python (no Mojo — that's #17), follows established phase14 patterns, and needs tight iteration loops. Chunks are dependency-ordered: locals → memory → calls → integration tests. Each has ratchet-style invariants. Architecture goes from 5 to 10 active attention heads (of 18). Issues #8 and #15 are closed/merged.
+
+---
+
+## 2026-03-23 — procedure (p1) `52b32878`
 _tags: shipped, issue-11, arithmetic, 2026-03-23_
 
 Phase 14 Chunk 1 (Issue #11) SHIPPED: 5 arithmetic opcodes added to llm-as-computer.
@@ -58,7 +75,7 @@ All 10 test groups pass (87 individual tests). Full Phase 4/11/13 backward compa
 
 ---
 
-## 2026-03-23 — decision (3dcba263)
+## 2026-03-23 — decision (p1) `3dcba263`
 _tags: wasm, roadmap, architecture, 2026-03-23_
 
 LLM-as-computer WASM expansion roadmap (2026-03-23):
@@ -87,7 +104,7 @@ KEY INSIGHT: Tier 1 is the sweet spot — 39 opcodes, zero architectural changes
 
 ---
 
-## 2026-03-23 — procedure (45f3290c)
+## 2026-03-23 — procedure (p1) `45f3290c`
 _tags: mojo, skill, shipped, 2026-03-23_
 
 SHIPPED: llm-as-computer skill — functional compiled transformer executor.
@@ -111,53 +128,21 @@ STATUS: Working in compute environment, not yet in GitHub repo. Needs PR to pers
 
 ---
 
-## 2026-03-23 — analysis (5821d515)
-_tags: mojo, benchmark, percepta, satisfaction, 2026-03-23_
+## 2026-03-13 — analysis (p1) `45101322`
+_tags: percepta, transformer-executor, architecture, research, 2026-03-13_
 
-LLM-as-computer Mojo port benchmark results (2026-03-23):
-
-PHASE 12 (Compiled Transformer Executor) — countdown test (14-step loop program):
-  Mojo:    0.75 µs/exec → 18.6M steps/s
-  Python:  46.4 µs/exec → 301K steps/s  (62× slower)
-  NumPy:   301 µs/exec  → 47K steps/s   (401× slower)
-  PyTorch: 1011 µs/exec → 13.8K steps/s (1348× slower)
-
-PHASE 1 (Parabolic KV Cache) at 50K entries:
-  Mojo ternary:  0.21 µs/query → 7.5M queries/s
-  Mojo brute:    67.7 µs/query (510× slower — O(n) vs O(log n))
-  Python ternary: 6.98 µs/query (33× slower than Mojo ternary)
-  Python brute:  2771 µs/query
-  NumPy brute:   61.4 µs/query (competitive with Mojo brute due to SIMD)
-
-KEY INSIGHT: Framework overhead dominates for tiny tensors. PyTorch (nn.Linear + argmax dispatch) is 1348× slower than Mojo on 36-dim embeddings. NumPy is 6× slower than pure Python because array creation exceeds computation. The algorithm wins (O(log n) ternary) compound with language wins (native code): Mojo ternary at 100K entries is 693× faster than Mojo brute.
-
-PRACTICAL IMPLICATION: The Percepta compiled-transformer thesis extends from "theoretically correct" to "viable compute substrate" — 18M instructions/sec in native code means real programs can execute through attention.
-
-WHY (experience layer): The surprising result wasn't Mojo vs Python speed — that was predicted. It was NumPy being SLOWER than pure Python. This validates the hypothesis that framework overhead is the real bottleneck for compiled transformers, not algorithmic complexity. The per-step computation (4 attention heads on 36-dim vectors) is so small that any abstraction layer costs more than the work itself.
+LLM-as-computer Phase 13 (ISA Completeness): Compiled transformer is now a general-purpose stack computer. Added SWAP, OVER, ROT opcodes (12 total), 5th attention head for SP-2. Algorithm suite all passing on both numpy + PyTorch executors with trace-level match: Fibonacci (fib(10)=55, 111 steps), multiply via repeated addition (12*10=120, 119 steps), power-of-2 via repeated doubling (2^7=128, 76 steps), sum 1..N (sum(1..15)=120, 156 steps), parity test via conditional branching. Architecture: d_model=36, 5/18 heads active, 964 compiled params. Key insight: SWAP/OVER/ROT transforms ISA from theoretically-Turing-complete to Forth-equivalent and practically programmable. Parabolic addressing generalizes cleanly to arbitrary stack depth offsets.
 
 ---
 
-## 2026-03-12 — analysis (76c24b03)
-_tags: curriculum-learning, research, satisfaction, 2026-03-12_
+## 2026-03-13 — decision (p2) `f21caa74`
+_tags: methodology, research, percepta, correction, 2026-03-13_
 
-LLM-as-computer Phase 6 DIAGNOSTIC FINDING: The bottleneck is numeric vocabulary, not execution logic.
-
-EXPERIMENT: PUSH+HALT only, 137K param model (d=64, h=4, L=2), 1000 training samples.
-
-max_push_val=50 (51 values): 58% val accuracy, 0/50 perfect traces. PLATEAUED.
-max_push_val=5 (6 values):   87.5% val accuracy, 50/50 PERFECT traces. Still climbing at wall-clock.
-
-WHY: With 1000 samples and 51 values, each number appears ~20 times. With 6 values, ~167 times. The model needs sufficient examples per numeric token to learn the attention-based copying pattern from program section to trace section.
-
-IMPLICATION: Phase 5's "56% accuracy gap" was NOT about difficulty learning execution structure or arithmetic. It was about insufficient data density per numeric token. The model learned execution grammar perfectly when the numeric vocabulary was tractable.
-
-REVISED PLAN: Keep max_push_val small (0-5 or 0-10) for the curriculum stages. The research question is "does curriculum learning help with ADD?" not "can the model memorize 50 numbers." ADD with values 0-5 still produces sums 0-10, which is testable.
-
-WHY (experience layer): This was genuinely surprising. I expected the PUSH+HALT stage to be trivially solved regardless of numeric range — I thought the "attention heads have clean roles" finding from Phase 4 meant copying was easy. But copying requires learning a lookup table from POSITION to VALUE, and that table has as many entries as the vocabulary. With small vocab, the model nails it. With large vocab, it fails to generalize. The structural insight holds — the attention mechanism CAN implement the lookup — but the LEARNING of that lookup requires adequate data per symbol.
+METHODOLOGICAL LESSON (llm-as-computer): When replicating/testing claims from an external resource (blog post, paper, etc.), do an extractive summary of ALL specifics from the original and store it with the iterative plan. This prevents drift from the original problem. Concrete example: Phases 5-10 tried to TRAIN arithmetic into the model via gradient descent, while Percepta's core insight was to COMPILE logic into weights. We spent 5 phases on a path the blog post explicitly said wouldn't work. Phase 11 returned to the compile path and immediately succeeded. The drift happened because we didn't anchor our plan to the specific claims of the source.
 
 ---
 
-## 2026-03-12 — procedure (3f5d01a1)
+## 2026-03-12 — procedure (p1) `3f5d01a1`
 _tags: curriculum-learning, research, 2026-03-12_
 
 PLAN: LLM-as-computer Phase 6 — Curriculum Learning

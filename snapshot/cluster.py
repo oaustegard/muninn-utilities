@@ -72,7 +72,7 @@ def pick_primary_tag(memory: dict, freq: Counter) -> str:
 def cluster_by_primary_tag(
     memories: list[dict],
     *,
-    max_cluster_size: int = 50,
+    max_cluster_size: int = 30,
     min_cluster_size: int = 2,
 ) -> dict[str, list[dict]]:
     """Group memories by primary tag.

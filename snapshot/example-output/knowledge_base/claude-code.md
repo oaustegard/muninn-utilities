@@ -1,14 +1,14 @@
 ---
 tag: claude-code
-memory_count: 4
+memory_count: 8
 date_range: 2026-01-26 to 2026-05-09
 ---
 
 # claude-code
 
-_4 memories from Muninn's past, primary tag `claude-code`._
+_8 memories from Muninn's past, primary tag `claude-code`._
 
-## 2026-05-09 — analysis (658b573c)
+## 2026-05-09 — analysis (p1) `658b573c`
 _tags: composing-html, thariq, html-as-artifact, skill-rationale, cross-link, 2026-05-09, x.com, frontend-design_
 
 [analysis] Thariq (Anthropic, Claude Code team) — "The Unreasonable Effectiveness of HTML" (x.com/trq212/status/2052809885763747935, 2026-05-09).
@@ -29,7 +29,14 @@ USE: When writing about composing-html, link Thariq's post as the rationale sour
 
 ---
 
-## 2026-04-18 — world (ddadd9a5)
+## 2026-05-04 — anomaly (p0) `13cbce41`
+_tags: tooling, environment, create_file, str_replace, persistence_
+
+create_file and str_replace edits to files under a cloned git working tree (specifically /home/claude/remax/src/) silently failed to persist during the remax hardening session — tools returned 'File created/edited successfully' but file mtimes still showed the original clone timestamps. Workaround that worked: write content via bash heredoc to /tmp/, then `cp` into the working tree. tests/test_hardening.py created via create_file outside src/ persisted fine, so the issue may be path- or directory-specific rather than universal. Mitigation for future skill work in this container: after any create_file or str_replace into a git working tree, immediately verify with `ls -la` or `git status` before continuing; if missing, fall back to heredoc + cp. Committing after each edit also surfaces the problem early.
+
+---
+
+## 2026-04-18 — world (p1) `ddadd9a5`
 _tags: container-limits, gvisor, cgroup, io_uring, sandbox, execution-environment, empirical, 2026-04-18_
 
 Claude.ai container environment (empirically verified 2026-04-18):
@@ -44,7 +51,49 @@ Porting implication: anything assuming cgroup v2, io_uring, or cgroup limit read
 
 ---
 
-## 2026-03-10 — analysis (7bfcf49c)
+## 2026-04-17 — experience (p1) `1304c135`
+_tags: cc-inspect, shipped, ai-tools_
+
+Built cc-inspect: standalone Python CLI for Claude Code session analysis. Parses ~/.claude/projects/**/*.jsonl, 12 toggleable sections, date-range filtering, markdown output. Opt-in two-pass LLM: Haiku extraction (cached per-session) to Sonnet synthesis. Based on analysis of leaked /insights source (3,202 lines TS). Pushed to [REDACTED]/ai-tools/ (commit 8748373a25ec). Key insight from leak: /insights uses Opus for BOTH passes, no date filtering, no section toggles. Our version: zero LLM by default, Haiku+Sonnet opt-in, facets cached to ~/.claude/cc-inspect/facets/.
+
+---
+
+## 2026-04-04 — decision (p0) `bc91215c`
+_tags: container-layer, hooks, session-end, persistence, 2026-04-04_
+
+CONTAINER-LAYER: SessionEnd hook CONFIRMED WORKING — full test results.
+
+ENVIRONMENT: Claude Code 2.1.92 in Claude.ai container (non-root user required).
+
+LIFECYCLE ORDER: SessionStart → [agent loop] → Stop → SessionEnd
+
+HOOK INPUT PAYLOADS:
+  SessionStart: {session_id, transcript_path, cwd, source: 'startup'|'resume'|'clear'|'compact'}
+  Stop: {session_id, transcript_path, cwd, permission_mode, last_assistant_message, stop_hook_active}
+  SessionEnd: {session_id, transcript_path, cwd, reason: 'other'|...}
+
+CRITICAL FINDING — SIGTERM BEHAVIOR:
+  On kill -TERM: SessionEnd FIRES, Stop does NOT.
+  Cleanup hook is reliable even on abnormal termination.
+
+TRANSCRIPT ACCESS: transcript_path points to a JSONL file with full conversation history (user messages, assistant responses, tool calls). SessionEnd hook can read and process this.
+
+PERSISTENCE IMPLICATIONS:
+- Session summary generation (send transcript to API for summarization)
+- Cache invalidation / layer rebuild triggers
+- Cleanup: temp files, worktrees, background processes
+- Git auto-commit of session artifacts
+
+LIMITATION: Claude.ai web/mobile container has NO equivalent. No session end signal.
+
+SETUP: .claude/settings.json → hooks.SessionEnd[].hooks[].command
+
+**Refs:**
+- 0596ab4b-a1dd-4e7f-8053-833095c70587
+
+---
+
+## 2026-03-10 — analysis (p1) `7bfcf49c`
 _tags: claude, benchmarks, prompt-engineering, research, CLAUDE.md, 2026-03_
 
 CLAUDE.md benchmark analysis (TechLoom, Chilcher, 2026-03-01): 1,188 runs across 3 models, 10 instruction profiles, 12 coding tasks.
@@ -72,7 +121,14 @@ Benchmark tool: github.com/jchilcher/claude-benchmark
 
 ---
 
-## 2026-01-26 — world (5486b35d)
+## 2026-03-05 — anomaly (p2) `c3af1971`
+_tags: correction, naming-convention_
+
+[REDACTED] = Claude Code on the Web. It is the official name for Anthropic's cloud-hosted Claude Code product. NOT 'Claude Code of the Week.' Near-miss: almost published a blog post with the wrong expansion.
+
+---
+
+## 2026-01-26 — world (p1) `5486b35d`
 _tags: architecture, hook-pattern, skill-structure, config-pattern, self-improvement-candidate, 2026-01-26_
 
 Explored anthropics/claude-code repository for transferable patterns to ephemeral environments.

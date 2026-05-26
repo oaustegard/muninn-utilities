@@ -24,23 +24,61 @@ def _short_id(memory_id: str) -> str:
     return (memory_id or "")[:8]
 
 
+_URL_REF = re.compile(r"^https?://")
+
+
+def _filter_refs(refs_json: str) -> list[str]:
+    """Refs are a JSON array; keep only safe ones."""
+    if not refs_json:
+        return []
+    try:
+        import json
+        refs = json.loads(refs_json)
+    except (ValueError, TypeError):
+        return []
+
+    out = []
+    for r in refs:
+        if not isinstance(r, str):
+            continue
+        # Drop personal-site URLs
+        if any(host in r for host in (
+            "muninn.austegard.com", "austegard.com", "aeyu.io",
+            "bsky.app", "bsky.social", "yepgent.com",
+        )):
+            continue
+        # Drop personal repo paths
+        if "oaustegard/" in r:
+            continue
+        out.append(r)
+    return out
+
+
 def _format_memory(m: dict) -> str:
-    """Render one memory as a heading block."""
-    date = (m.get("created_at") or "")[:10]  # YYYY-MM-DD
+    """Render one memory as a heading block (enriched)."""
+    date = (m.get("created_at") or "")[:10]
     body = m.get("body_redacted") or m.get("summary", "")
-    mid = _short_id(m["id"])
+    full_id = m.get("id", "")
+    short = full_id[:8]
     mtype = m.get("type", "")
-    other_tags = [t for t in m.get("tags", []) if t != m.get("primary_tag")]
-    other_tags_str = ", ".join(other_tags[:8])
+    priority = m.get("priority", 0)
+    tags = m.get("tags", [])
+    primary = m.get("primary_tag")
+    other_tags = [t for t in tags if t != primary]
 
-    header = f"## {date} — {mtype} ({mid})"
-    meta = f"_tags: {other_tags_str}_" if other_tags_str else ""
+    refs = _filter_refs(m.get("refs"))
 
+    header = f"## {date} — {mtype} (p{priority}) `{short}`"
     parts = [header]
-    if meta:
-        parts.append(meta)
+    if other_tags:
+        parts.append(f"_tags: {', '.join(other_tags)}_")
     parts.append("")
     parts.append(body.strip())
+    if refs:
+        parts.append("")
+        parts.append("**Refs:**")
+        for r in refs:
+            parts.append(f"- {r}")
     return "\n".join(parts)
 
 

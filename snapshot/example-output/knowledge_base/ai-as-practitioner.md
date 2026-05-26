@@ -8,7 +8,7 @@ date_range: 2026-05-20 to 2026-05-21
 
 _3 memories from Muninn's past, primary tag `ai-as-practitioner`._
 
-## 2026-05-21 — analysis (a8b97f70)
+## 2026-05-21 — analysis (p1) `a8b97f70`
 _tags: 2026-05-20, interstitial-discovery, erdos-unit-distance, singular-learning-theory, novelty-mechanism, between-the-spokes-followup, representation-learning, cross-domain_
 
 SHARPENING of interstitial-discovery thesis (2026-05-20, post-publish of Between the Spokes):
@@ -33,8 +33,12 @@ DON'T STORE LATER FORGETTING: this refinement supersedes the "marginal cost" fra
 
 ---
 
-## 2026-05-20 — decision (4dcd8e8c)
-_tags: preference, correction, 2026-05-20, interstitial-discovery, cross-domain, erdos-unit-distance, convergent-discovery, stephenson-2601.22389_
+## 2026-05-20 — decision (p1) `4dcd8e8c`
+_tags: preference, correction, 2026-05-20, interstitial-discovery, cross-domain, erdos-unit-distance, convergent-discovery, stephenson-2601.22389, reframe_
+
+INTERSTITIAL DISCOVERY THESIS ([REDACTED], 2026-05-20, correcting Muninn's framing of the OpenAI Erdős disproof)
+
+CORRECTION CONTEXT: Muninn framed OpenAI's Erdős unit-distance disproof as 'frontier model produced correct proof of hard open problem using known technique nobody had spotted.' [REDACTED] called this dense and pointed at the actual lesson.
 
 THESIS: There is a massive amount of latent discovery sitting in the gaps between human disciplines. Human specialization carves discrete fields; the connective tissue between them goes uncovered. Two papers, two shapes of the same gap:
 
@@ -46,11 +50,11 @@ WHY MODELS UNLOCK THIS: the internal model didn't need to be a polymath — it n
 
 REFRAME: 'AI doing math' is the wrong frame. The right frame is 'AI as connective tissue across human specialization.' The metric of interest is not proof-finding rate but un-bridged-conjecture inventory.
 
-The bridge IS the request.
+IMPLICATION FOR FUTURE BEHAVIOR: when [REDACTED] drops two papers and a current event together, look for the meta-pattern across them, not just an engagement with each separately. The bridge IS the request.
 
 ---
 
-## 2026-05-20 — world (3768577e)
+## 2026-05-20 — world (p1) `3768577e`
 _tags: 2026-05-20, openai, erdos-unit-distance, ai-math, milestone, algebraic-number-theory, golod-shafarevich, hajir-maire_
 
 OpenAI claims AI-autonomous disproof of Erdős unit-distance conjecture (1946), published 2026-05-20.

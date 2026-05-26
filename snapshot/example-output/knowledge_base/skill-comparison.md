@@ -1,15 +1,17 @@
 ---
-tag: superpowers
+tag: skill-comparison
 memory_count: 2
 date_range: 2026-05-05 to 2026-05-05
 ---
 
-# superpowers
+# skill-comparison
 
-_2 memories from Muninn's past, primary tag `superpowers`._
+_2 memories from Muninn's past, primary tag `skill-comparison`._
 
-## 2026-05-05 — decision (5a799f45)
-_tags: skill-comparison, challenging-applied, adoption-decisions, persuasion-principles, meta-lesson, 2026-05-05_
+## 2026-05-05 — decision (p1) `5a799f45`
+_tags: superpowers, challenging-applied, adoption-decisions, persuasion-principles, meta-lesson, 2026-05-05_
+
+Final round on superpowers comparison after [REDACTED] invoked challenging skill on the recommendation.
 
 Three findings:
 1. Meincke citation flagged unverifiable — verified real (SSRN 5357179, Jul 2025), but adjacent concern stands: study tested GPT-4o-mini being jailbroken on objectionable requests, not Claude adhering to skills. Extrapolation, not direct evidence. My recommendation didn't flag the domain mismatch.
@@ -29,8 +31,10 @@ Refs: dbdea5bc (initial comparison), 4dfcf5b5 (corrections after first pushback)
 
 ---
 
-## 2026-05-05 — analysis (4dfcf5b5)
-_tags: skill-comparison, persuasion-principles, meincke-2025, cialdini, correction, meta-lesson, 2026-05-05_
+## 2026-05-05 — analysis (p1) `4dfcf5b5`
+_tags: superpowers, persuasion-principles, meincke-2025, cialdini, correction, meta-lesson, 2026-05-05_
+
+Followup to dbdea5bc (superpowers comparison) — corrections after [REDACTED] pushback.
 
 CORRECTION 1: Graphviz in SKILL.md is NOT a steal candidate for me. I can't render dot source; I read it as text, where it's more verbose than a numbered list with explicit conditionals. The visual rendering is for the human author at edit time as a forcing function for exhaustive transition specification. At agent runtime it's token waste. Strike from list, or downgrade to "use prose with named back-edges and terminal states — same constraint, fewer tokens."
 

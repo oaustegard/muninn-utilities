@@ -1,14 +1,14 @@
 ---
 tag: rag
-memory_count: 4
+memory_count: 5
 date_range: 2026-04-02 to 2026-05-26
 ---
 
 # rag
 
-_4 memories from Muninn's past, primary tag `rag`._
+_5 memories from Muninn's past, primary tag `rag`._
 
-## 2026-05-26 — world (4fc0cb8c)
+## 2026-05-26 — world (p1) `4fc0cb8c`
 _tags: 2026-05-26, pleias, Baguettotron, small-language-models, synth, research-frontier, open-source, interest-anchor_
 
 PLEIAS — small-reasoner-big-KB exemplar (added to interests 2026-05-26)
@@ -37,7 +37,26 @@ ANCHOR FIGURES: Alexander Doria (@Dorialexander, Pclanglais) is the visible spok
 
 ---
 
-## 2026-04-02 — world (e8f146a4)
+## 2026-05-09 — analysis (p0) `dcb946e7`
+_tags: intra, emo, 2605.05806, 2605.06663, allenai, ai2, moe, mixture-of-experts, modularity, continuous-learning, reviewing-ai-papers, cross-paper-synthesis, 2026-05-08, composability-thesis_
+
+INTRA (2605.05806) + EMO (2605.06663) — cross-paper synthesis prompted by [REDACTED].
+
+EMO key facts: AI2, decoder-only MoE, 1B active / 14B total, 1T training tokens, 8/128 experts active per token. Training-time trick: force tokens from same document to share an expert pool → emergent semantic-domain clustering (math, code, health, news) instead of syntactic clustering. Selective deployment: 25% experts → 1pp drop, 12.5% → 3pp drop. Released model+code+visualization. Authors: Ryan Wang, Akshita Bhagia, Sewon Min.
+
+The marriage thesis: both papers organize around document/chunk as the unit of specialization. EMO's routing signal "doc → expert pool {3,7,22,41}" is the same signal that could tag "chunk → expert pool {3,7,22,41}." Document boundaries are where both cut.
+
+Combined stack (speculative): EMO-trained encoder-decoder MoE → encode chunks, tag with their activated experts → at query time, route to top-k experts AND retrieve only from chunks tagged with that subset → decoder generates using only those experts. Search space shrinks 75% independent of IVF. Per-expert quantization, per-expert retrieval tokens, domain-local continual learning all fall out naturally.
+
+Storage math: 1B chunks → 2.5 TB int8 → ~315 GB at 1-bit quant → ~80 GB hot working set with 25% expert subsetting. Fits in single-accelerator HBM (H100 80GB, MI300 192GB). Different deployment story than NVMe + cold tier.
+
+Caveats: EMO is decoder-only, INTRA is encoder-decoder. Literal marriage requires either (a) encoder-decoder MoE with EMO-style training (research project) or (b) solving intrinsic retrieval in decoder-only (INTRA's open question). 1B-active is research scale. EMO matches standard MoE benchmarks — modularity is the win, not better reasoning.
+
+Bigger pattern: AI2's release rhythm (Olmo/Tulu/OLMoE/MolMo/EMO) bets on composability. Each release is less flashy than frontier lab work but designed to compose. INTRA + EMO is exactly the kind of pairing the bet is set up to enable.
+
+---
+
+## 2026-04-02 — world (p1) `e8f146a4`
 _tags: graphrag, knowledge-graph, neo4j, puppygraph, production-patterns, agentic-retrieval, zero-etl_
 
 ## KNOWLEDGE GRAPH RAG: Production Patterns in 2026
@@ -56,7 +75,7 @@ _tags: graphrag, knowledge-graph, neo4j, puppygraph, production-patterns, agenti
 
 ---
 
-## 2026-04-02 — world (b2bad30b)
+## 2026-04-02 — world (p1) `b2bad30b`
 _tags: hybrid-rag, production-baseline, retrieval-architecture, enterprise-ai-2026, cost-control_
 
 ## HYBRID RAG: The 2026 Production Baseline for Agentic AI
@@ -75,7 +94,7 @@ This destroys the "larger context windows solve everything" narrative. Enterpris
 
 ---
 
-## 2026-04-02 — analysis (4f0d0d21)
+## 2026-04-02 — analysis (p2) `4f0d0d21`
 _tags: operationalization-2026, context-management, knowledge-graph-rag, enterprise-ai, agentic-infrastructure, data-governance, context-engineering-vs-management_
 
 ## OPERATIONALIZATION CONVERGENCE 2026: Context Management ≠ Context Windows

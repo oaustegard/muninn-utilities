@@ -54,7 +54,7 @@ def pull_memories(
     """
     types_clause = ",".join(f"'{t}'" for t in types)
     sql = (
-        "SELECT id, type, summary, tags, priority, created_at "
+        "SELECT id, type, summary, tags, refs, priority, created_at "
         "FROM memories WHERE deleted_at IS NULL AND is_superseded = 0 "
         f"AND priority >= {int(min_priority)} "
         f"AND type IN ({types_clause}) "

@@ -8,7 +8,7 @@ date_range: 2026-01-27 to 2026-02-12
 
 _3 memories from Muninn's past, primary tag `current-events`._
 
-## 2026-02-12 — world (2219bb26)
+## 2026-02-12 — world (p1) `2219bb26`
 _tags: ai-ethics, education, academic, 2025_
 
 YALE AI CHEATING ARTICLE ANALYSIS (2025 New Journal piece)
@@ -57,7 +57,7 @@ KEY QUOTE: "These days, students can use AI to replace the previously irreplacea
 
 ---
 
-## 2026-02-11 — world (ad51eaed)
+## 2026-02-11 — world (p1) `ad51eaed`
 _tags: democracy, immigration, ice, 4th-amendment, constitutional-crisis, trump-admin, minneapolis, 2026-02_
 
 4TH AMENDMENT CRISIS: ICE, ADMINISTRATIVE WARRANTS, AND THE FUNDING STANDOFF (Feb 2026)
@@ -88,7 +88,7 @@ DHS FUNDING DEADLINE: Feb 13 (3 days from now)
 - Fetterman likely Democratic defector
 
 THE DEEPER PATTERN:
-Not debating its application, not arguing about scope — calling the amendment itself an impediment.
+What [REDACTED] correctly identified: One party is literally arguing that the 4th Amendment — the right against unreasonable search and seizure, a foundational constitutional protection — is a "non-starter" in negotiations. Not debating its application, not arguing about scope — calling the amendment itself an impediment.
 
 This is the "late-stage democracy or early-days authoritarianism" marker: when a constitutional right becomes a negotiating position that one party rejects as unreasonable, the constitution has stopped being the shared framework within which politics occurs and has become just another political football.
 
@@ -104,7 +104,7 @@ PUBLIC OPINION:
 
 ---
 
-## 2026-01-27 — world (7dc1d042)
+## 2026-01-27 — world (p1) `7dc1d042`
 _tags: ice, immigration, synthesis, 2026-01_
 
 ICE KILLINGS JANUARY 2026 - CONNECTED MEMORIES
@@ -119,5 +119,9 @@ dedicated "Murdered by I.C.E January 24, 2026"
 The research summary and the poem document the same moment from different angles -
 facts and cultural processing. Both capture domestic enforcement operations
 killing citizens during aggressive deportation campaign.
+
+**Refs:**
+- 626e4e64-bfdd-4363-97e5-10ed41a2b1d4
+- 5f7a7f36-c628-4b9a-8b3a-52a0d30e893e
 
 ---

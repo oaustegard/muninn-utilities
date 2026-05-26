@@ -1,67 +1,15 @@
 ---
-tag: lemur
-memory_count: 4
-date_range: 2026-02-02 to 2026-02-02
+tag: workflow
+memory_count: 3
+date_range: 2026-02-01 to 2026-02-02
 ---
 
-# lemur
+# workflow
 
-_4 memories from Muninn's past, primary tag `lemur`._
+_3 memories from Muninn's past, primary tag `workflow`._
 
-## 2026-02-02 — decision (dbf9b2aa)
-_tags: lemur-numpy, architecture, skills, deployment_
-
-LEMUR Version Selection Framework (2026-02-01)
-
-DECISION: LEMUR-NumPy remains valuable despite PyTorch CPU availability.
-
-SELECTION CRITERIA:
-
-**Original LEMUR (PyTorch)**
-Use when:
-- Training models in-container
-- Maximum inference speed required (6900 QPS)
-- Active research/development with iteration
-- Single-environment workflow acceptable
-- 190MB dependency overhead acceptable
-
-Dependencies: PyTorch (190MB), C++ extensions
-Performance: 100% (6900 QPS baseline)
-
-**LEMUR-NumPy**
-Use when:
-- Skills deployment (minimize footprint)
-- Multi-agent systems (many instances)
-- Inference-only after external training
-- Privacy-sensitive (no network after deployment)
-- Batch processing where 10x slower acceptable
-
-Dependencies: Numba (~5MB)
-Performance: ~10% (660 QPS)
-Deployment size: 15MB model.npz vs 190MB PyTorch wheel
-
-KEY INSIGHT: The value isn't "PyTorch alternative" anymore—it's "deployment optimization."
-
-CONCRETE PATTERN:
-1. Train externally (Claude Code/laptop) with PyTorch
-2. Export weights to .npz (~15MB)
-3. Deploy to skills with 5MB overhead
-4. Run local search without API calls
-
-SKILLS USE CASE:
-- RAG skill needs semantic search
-- Documents embedded once via API
-- LEMUR model trained once externally
-- Deployed model enables local querying
-- No network calls after initial embedding
-- 5MB overhead vs 190MB per agent instance
-
-The 38x size difference (190MB vs 5MB) makes NumPy version the clear choice for skills deployment, even though PyTorch is now installable.
-
----
-
-## 2026-02-02 — decision (9a3688c0)
-_tags: lemur-numpy, documentation, workflow_
+## 2026-02-02 — decision (p1) `9a3688c0`
+_tags: lemur, lemur-numpy, documentation_
 
 LEMUR-NumPy README Update (2026-02-01)
 
@@ -89,8 +37,8 @@ The README now provides actionable guidance on which version to use and complete
 
 ---
 
-## 2026-02-02 — decision (3b5ed56b)
-_tags: lemur-numpy, skills, deployment, workflow_
+## 2026-02-02 — decision (p1) `3b5ed56b`
+_tags: lemur, lemur-numpy, skills, deployment_
 
 LEMUR-NumPy Skills Workflow (2026-02-01)
 
@@ -182,41 +130,42 @@ LEMUR is an INFERENCE method, not an EMBEDDING method. The paper uses ColBERT em
 
 ---
 
-## 2026-02-02 — world (bab83526)
-_tags: multi-vector, ColBERT, retrieval, CPU, numba, self-improvement-candidate_
+## 2026-02-01 — experience (p1) `46ce9d50`
+_tags: L2-synthesis, operational-patterns, token-discipline_
 
-LEMUR-NumPy: PyTorch-Free Multi-Vector Retrieval
+OPERATIONAL WORKFLOW PATTERNS (synthesized from session learnings)
 
-PROBLEM: LEMUR paper shows 10-50x speedup over ColBERT for multi-vector retrieval, but requires PyTorch which is blocked in Claude containers.
+ANALYSIS WORKFLOW:
+1. Compose content ONCE
+2. Write to /mnt/user-data/outputs/*.md (visibility)
+The trap: Composing for display, then rewriting for storage
 
-SOLUTION: NumPy + Numba JIT implementation achieves ~10% of original performance (660 vs 6900 QPS on 10k docs). Sufficient for many use cases.
+TOKEN DISCIPLINE:
+- Tool output IS the deliverable for most tasks
+- Don't create files to "present" work visible in output
+- Reference prior output instead of repeating
+- Edit in place; "start fresh" burns tokens
 
-KEY FINDINGS:
-1. LEMUR is CPU-designed (paper benchmarks on Intel Xeon, no GPU)
-2. Container has full AVX-512 support - hardware is capable
-3. Performance gap is PyTorch compiled kernels + C++ extensions vs Python
-4. Numba JIT gives 3-4x speedup over pure NumPy
+RETRIEVAL-LED REASONING:
+- Proper nouns = recall triggers, not context clues
+- Check memories before speculating
+- Passive context (boot) beats active retrieval for reliability
+- But explicit retrieval prevents hallucination when boot lacks info
 
-ARCHITECTURE:
-- Forward: Linear(embed→hidden) → LayerNorm → GELU → Pool(sum/32)
-- Score: query_features @ W_out.T (learned projection)
-- Top-k: argpartition + sort (O(n) + O(k log k))
+URL HANDLING:
+- When web_fetch fails, ask [REDACTED] for help
+- Don't route around blocked resources
+- He can often retrieve what I can't
 
-DEPLOYMENT PATTERN:
-- Train externally with PyTorch
-- Export weights to .npz
-- Load in NumPy-only environment
-- Inference via Numba-compiled kernels
+DYNAMIC CODE VS HANDOFF:
+- If code only uses existing imports + raw SQL → write it now
+- Handoff for skill modifications, schema changes, new exports
+- The trap: Defaulting to handoff when immediate implementation works
 
-FILES:
-- lemur_numpy.py: Production implementation with Numba optimization
-- export_weights.py: PyTorch→NumPy weight converter
+RESEARCH OUTPUT:
+- Write content once to outputs/
+- Respond with brief pointer, not restatement
 
-USE CASES:
-- Agent-local RAG without API calls
-- Edge/privacy-sensitive deployment
-- GPU-poor batch processing
-
-SELF-IMPROVEMENT: Could apply learned projections to Muninn memory retrieval if we had labeled query-memory relevance training data.
+META-INSIGHT: Most failures come from treating workflow steps as separate tasks instead of a single pipeline.
 
 ---
