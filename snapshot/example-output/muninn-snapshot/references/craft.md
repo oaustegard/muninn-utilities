@@ -9,7 +9,6 @@ Universal craft triggers — load when working on:
 
 Each trigger block below tells you when it activates and what to do.
 
-
 ### backend-impl-protocol
 BACKEND-IMPL PROTOCOL
 

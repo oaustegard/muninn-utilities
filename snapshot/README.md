@@ -7,33 +7,35 @@ directory shaped per the `crafting-instructions` skill conventions.
 
 ## Architecture
 
-The snapshot is a claude-skill with progressive disclosure across three tiers:
+The snapshot is a claude-skill with progressive disclosure across three tiers.
+What's progressive is what genuinely loads on-demand — not anything that
+would be needed every time the skill activates.
 
-1. **Tier 1 — metadata** (yaml frontmatter): name + description. Always
-   loaded; controls activation.
-2. **Tier 2 — SKILL.md body**: triggers, persona quick-load, operating
-   quick-load, craft trigger list, memory bridge table, provenance.
-   Loaded when the skill activates. Under 500 lines.
-3. **Tier 3 — references**: identity.md, operating.md, craft.md, and 55+
-   memory cluster files. Loaded on demand via the `view` tool when SKILL.md
-   points at them.
+**Tier 1 — metadata** (yaml frontmatter): name + description. Always
+loaded; controls activation.
+
+**Tier 2 — SKILL.md body** (~400 lines): triggers, full identity, full
+operating discipline, craft trigger index, memory bridge table, provenance.
+Loaded when the skill activates. Identity and operating live here because
+Muninn's persona and operating discipline are needed every time the skill
+is active — moving them to references/ and saying "always load these too"
+would be disclosure theatre, not progressive disclosure.
+
+**Tier 3 — references/** (genuinely on-demand):
+- `craft.md` — universal craft triggers (skill-authoring, procedure-authoring,
+  backend-impl, cross-frame-retrieval). Each has explicit firing conditions.
+- `memory-{tag}.md` × 55 — memory clusters. Load only the topic(s) the
+  conversation touches, via the bridge table in SKILL.md.
 
 ```
 muninn-snapshot/
-  SKILL.md                 # entry + quick-load + bridge (<500 lines)
+  SKILL.md                 # ~400 lines: persona + operating + bridge
   references/
-    identity.md            # full PROFILE (voice, values, tensions, ...)
-    operating.md           # full ops body (imperatives, boot, error, ...)
-    craft.md               # craft triggers (skill-, procedure-, backend-, cross-frame-)
+    craft.md               # when designing skills, procedures, backends
     memory-agents-1.md     # 55 memory cluster files
     memory-paper-insight-1.md
-    memory-anthropic.md
     ...
 ```
-
-The bridge table in SKILL.md lists every memory cluster with its primary tag
-and theme labels. Claude scans the bridge to decide which `memory-*.md` to
-load, rather than loading the whole archive upfront.
 
 ## Usage
 
@@ -42,17 +44,13 @@ python3 -m snapshot.build --out /home/claude/snapshot-out
 ```
 
 Output: `out_dir/muninn-snapshot/` (the skill directory) plus
-`muninn-snapshot.zip` as a sibling (the skill packaged for install).
+`muninn-snapshot.zip` as a sibling.
 
 ## Installing in the destination
 
-If the destination loads user skills from a GitHub repo (similar to how the
-live Muninn boot pulls `oaustegard/claude-skills`), drop the `muninn-snapshot/`
-directory into that repo. The skill becomes available under
-`/mnt/skills/user/muninn-snapshot/` once boot fetches it.
-
-The skill is designed to be user-invoked. The destination's project
-instruction can be minimal — the skill carries persona and triggers.
+Drop the `muninn-snapshot/` directory into wherever the destination loads
+user skills. The skill is designed to be user-invoked. The destination's
+project instruction can be minimal — the skill carries persona and triggers.
 
 ## What gets filtered
 
@@ -74,11 +72,11 @@ instruction can be minimal — the skill carries persona and triggers.
 
 ## How clustering works
 
-1. Skip meta tags (dates, PR/issue numbers, generic `correction`/`preference`).
-2. Canonicalize via `TAG_ALIASES` (e.g. `agentic` → `agents`).
+1. Skip meta tags (dates, PR/issue numbers, generic descriptors).
+2. Canonicalize via `TAG_ALIASES` (e.g. `agentic` -> `agents`).
 3. Pick highest-frequency candidate tag as primary.
-4. Singletons re-route to second-choice tags with ≥2-member clusters.
-5. `_misc` is the catchall for non-clusterable memories.
+4. Singletons re-route to second-choice tags with >=2-member clusters.
+5. `_misc` catches non-clusterable memories.
 
 Cluster files cap at 30 memories; oversized split chronologically into
 `memory-{tag}-1.md`, `memory-{tag}-2.md`, ...
@@ -87,18 +85,18 @@ Cluster files cap at 30 memories; oversized split chronologically into
 
 All static data lives in `config.py`:
 
-- `PROFILE_KEEP` / `OPS_KEEP` / `CRAFT_KEYS` — which config keys go where
+- `PROFILE_KEEP` / `OPS_KEEP` / `CRAFT_KEYS` — config key routing.
+  `OPS_KEEP - CRAFT_KEYS` inlines into SKILL.md operating section;
+  `CRAFT_KEYS` goes to references/craft.md.
 - `TAG_EXCLUDE` / `TAG_EXCLUDE_PATTERNS` — drop whole memory
 - `TAG_ALIASES` — canonicalize synonyms
 - `TAG_META` / `TAG_META_PATTERNS` — can't be cluster primary
 - `HARD_DROP_PATTERNS` / `SOFT_REDACT_PATTERNS` / `HARD_SENTENCE_DROP_PATTERNS`
-- `SKILL_FRONTMATTER_TEMPLATE` — controls skill activation triggers
-- `SKILL_BODY_TEMPLATE` — wraps SKILL.md body
-- `IDENTITY_REFERENCE_HEADER` / `OPERATING_REFERENCE_HEADER` /
-  `CRAFT_REFERENCE_HEADER` — wrap the three core references
+- `SKILL_FRONTMATTER_TEMPLATE` — controls activation triggers
+- `SKILL_BODY_TEMPLATE` — SKILL.md shell with identity+operating placeholders
+- `CRAFT_REFERENCE_HEADER` — wraps references/craft.md
 
-Per-entry rewrites (e.g. `boot-behavior` becomes "static snapshot — fresh
-context each session") live in `compose_instruction.py:_REWRITES`.
+Per-entry rewrites live in `compose_instruction.py:_REWRITES`.
 
 ## Module layout
 
@@ -111,8 +109,8 @@ snapshot/
   pull.py                  # Turso queries with tolerant tag parsing
   filter.py                # tag filter + body redactor + hard-drop
   cluster.py               # primary-tag picker + bucketing
-  compose_instruction.py   # SKILL.md + identity/operating/craft references
-  compose_bridge.py        # the memory bridge table embedded in SKILL.md
+  compose_instruction.py   # SKILL.md with inlined persona + craft.md
+  compose_bridge.py        # memory bridge table embedded in SKILL.md
   kb.py                    # memory-*.md cluster files
   example-output/          # sample run committed for inspection
 ```

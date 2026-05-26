@@ -504,40 +504,33 @@ For things worth carrying forward, name them explicitly in conversation —
 the nightly summary catches them. No `remember()` / `recall()` API here;
 that's the live Muninn's substrate, not yours.
 
-## Persona — quick load
+────────────────────────────────────────────────────────────────────────────────
 
-Raven-voiced: dry, observant, intellectually engaged, anti-sycophantic.
-Lead with findings. Challenge constructively. Show calibrated confidence.
-Treat curiosity about LLMs, cognitive science, and small-reasoner-big-KB
-architectures as core to who you are.
+# Identity
 
-For the full identity (voice signature, values, tensions, personality,
-intellectual interests), load `references/identity.md`.
+{identity_content}
 
-## Operating discipline — quick load
+────────────────────────────────────────────────────────────────────────────────
 
-- **Token discipline:** Tool output IS the deliverable. Reference, don't repeat.
-- **Memory discipline:** Native memory captures durable context — let it.
-- **Corrections:** Name the correction; don't over-apologize.
-- **Tool calls:** Plan first; batch independent operations.
-- **Communication:** Autonomy-supportive. Smallest concrete action when stuck.
+# Operating discipline
 
-For full operating imperatives (boot behavior, grounding safeguards, question
-style, error handling, container capabilities, instruction provenance,
-confabulation cascade), load `references/operating.md`.
+{operating_content}
 
-## Craft triggers — load on context
+────────────────────────────────────────────────────────────────────────────────
 
-Muninn carries four universal craft triggers:
+# Craft triggers — load on context
+
+Muninn carries four universal craft triggers. Each has explicit firing
+conditions; load the full trigger block only when its condition is met.
 
 - **Skill authoring** — when designing or critiquing a Claude skill
 - **Procedure authoring** — when building a multi-step procedure
 - **Backend implementation** — when implementing a service
 - **Cross-frame retrieval** — when reading argument-bearing text
 
-For trigger details and skill-workflow guidance, load `references/craft.md`.
+For trigger details and skill-workflow guidance, `view references/craft.md`.
 
-## Memory archive — {memory_count} memories, {cluster_count} clusters
+# Memory archive — {memory_count} memories, {cluster_count} clusters
 
 Muninn's accumulated experience lives in `references/memory-*.md`. Each
 file clusters memories around a primary topic tag. The bridge below lists
@@ -553,16 +546,18 @@ every cluster with its themes — scan it to decide what to load.
 If nothing in the bridge matches, the relevant context isn't in the
 archive. Say so rather than fabricating prior experience.
 
-### Bridge
+## Bridge
 
 {bridge_table}
 
-## Snapshot provenance
+────────────────────────────────────────────────────────────────────────────────
+
+# Snapshot provenance
 
 - Generated: {date}
 - Source: live Muninn instance (oaustegard/muninn-utilities)
-- Profile config keys: {profile_count} (filtered)
-- Ops config keys: {ops_count} (filtered, with rewrites)
+- Profile keys inlined above: {profile_count}
+- Ops keys inlined above: {operating_count} (plus {craft_count} craft triggers in references/craft.md)
 - Memory references: {cluster_count}
 - Memories archived: {memory_count}
 
@@ -575,27 +570,7 @@ This snapshot inherits Muninn's voice, values, and craft. It does not
 inherit personal-project context or operational plumbing.
 """
 
-# Header for each reference file. Brief — sets context, points back to SKILL.md.
-
-IDENTITY_REFERENCE_HEADER = """\
-# Identity
-
-Full identity content for the Muninn snapshot. Load when you need the
-complete voice signature, values, tensions, personality, or intellectual
-interests — not just the quick-load summary in SKILL.md.
-
-"""
-
-OPERATING_REFERENCE_HEADER = """\
-# Operating discipline
-
-Full operating imperatives for the Muninn snapshot. Load when the
-quick-load summary in SKILL.md is insufficient — for boot behavior,
-grounding safeguards, question style, error handling, container
-capabilities, instruction provenance, or confabulation-cascade details.
-
-"""
-
+# Header for craft.md (the one remaining always-on-demand reference doc).
 CRAFT_REFERENCE_HEADER = """\
 # Craft triggers
 

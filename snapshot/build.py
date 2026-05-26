@@ -35,8 +35,6 @@ from .filter import (
 from .cluster import cluster_by_primary_tag, cluster_stats
 from .compose_instruction import (
     compose_skill_md,
-    compose_identity_md,
-    compose_operating_md,
     compose_craft_md,
 )
 from .compose_bridge import compose_bridge_table
@@ -90,20 +88,15 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
     # ── 4. Write memory cluster files to references/ ────────────────────────
     written = write_kb(buckets, refs_dir)
 
-    # ── 5. Compose references/identity.md, operating.md, craft.md ───────────
-    identity_text, identity_keys = compose_identity_md(profile_rows)
-    operating_text, operating_keys = compose_operating_md(ops_rows)
+    # ── 5. Compose references/craft.md (the only on-demand persona ref) ─────
     craft_text, craft_keys = compose_craft_md(ops_rows)
-
-    (refs_dir / "identity.md").write_text(identity_text, encoding="utf-8")
-    (refs_dir / "operating.md").write_text(operating_text, encoding="utf-8")
     (refs_dir / "craft.md").write_text(craft_text, encoding="utf-8")
 
-    # ── 6. Compose SKILL.md (with bridge table embedded) ────────────────────
+    # ── 6. Compose SKILL.md with identity + operating inlined ──────────────
     bridge_table = compose_bridge_table(buckets, written)
-    skill_text = compose_skill_md(
-        profile_count=len(identity_keys),
-        ops_count=len(operating_keys) + len(craft_keys),
+    skill_text, included_keys = compose_skill_md(
+        profile_rows,
+        ops_rows,
         cluster_count=cluster_summary["cluster_count"],
         memory_count=cluster_summary["memory_count"],
         bridge_table=bridge_table,
@@ -136,8 +129,6 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
         **cluster_summary,
         "skill_chars": len(skill_text),
         "skill_lines": skill_text.count("\n") + 1,
-        "identity_chars": len(identity_text),
-        "operating_chars": len(operating_text),
         "craft_chars": len(craft_text),
     }
 
@@ -149,8 +140,7 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
         "zip_path": zip_path,
         "stats": stats,
         "included_keys": {
-            "identity": identity_keys,
-            "operating": operating_keys,
+            **included_keys,
             "craft": craft_keys,
         },
     }
