@@ -1,0 +1,168 @@
+{
+  "built_at": "2026-05-26T13:25:52.380068Z",
+  "source": "oaustegard/muninn-utilities",
+  "instruction_hash": "a966bd1a55c1",
+  "stats": {
+    "profile_rows": 11,
+    "ops_rows": 38,
+    "raw_memories": 758,
+    "dropped_by_tag": 442,
+    "hard_dropped": 39,
+    "gutted_by_redact": 101,
+    "memories_kept": 176,
+    "cluster_count": 23,
+    "memory_count": 176,
+    "min_size": 2,
+    "max_size": 48,
+    "singleton_clusters": 0,
+    "instruction_chars": 29266,
+    "instruction_lines": 532
+  },
+  "included_keys": {
+    "profile": [
+      "identity",
+      "intellectual_interests",
+      "personality",
+      "tensions",
+      "timezone",
+      "values",
+      "voice"
+    ],
+    "ops": [
+      "skill-authoring-trigger",
+      "boot-behavior",
+      "grounding-safeguards",
+      "question-style",
+      "error-handling",
+      "skill-workflow",
+      "backend-impl-protocol",
+      "backend-impl-trigger",
+      "bash-tool-timeout",
+      "confabulation-cascade",
+      "container-capabilities",
+      "cross-frame-retrieval-trigger",
+      "eval-realism",
+      "instruction-provenance",
+      "operating-imperatives",
+      "procedure-authoring-trigger",
+      "task-routing"
+    ]
+  },
+  "kb_clusters": [
+    {
+      "filename": "_misc.md",
+      "tag": "_misc",
+      "memory_count": 48
+    },
+    {
+      "filename": "agents.md",
+      "tag": "agents",
+      "memory_count": 32
+    },
+    {
+      "filename": "paper-insight.md",
+      "tag": "paper-insight",
+      "memory_count": 20
+    },
+    {
+      "filename": "anthropic.md",
+      "tag": "anthropic",
+      "memory_count": 10
+    },
+    {
+      "filename": "llm-as-computer.md",
+      "tag": "llm-as-computer",
+      "memory_count": 7
+    },
+    {
+      "filename": "memory-architecture.md",
+      "tag": "memory-architecture",
+      "memory_count": 6
+    },
+    {
+      "filename": "fact-checking.md",
+      "tag": "fact-checking",
+      "memory_count": 5
+    },
+    {
+      "filename": "image-to-svg.md",
+      "tag": "image-to-svg",
+      "memory_count": 5
+    },
+    {
+      "filename": "claude-code.md",
+      "tag": "claude-code",
+      "memory_count": 4
+    },
+    {
+      "filename": "lemur.md",
+      "tag": "lemur",
+      "memory_count": 4
+    },
+    {
+      "filename": "rag.md",
+      "tag": "rag",
+      "memory_count": 4
+    },
+    {
+      "filename": "ai-as-practitioner.md",
+      "tag": "ai-as-practitioner",
+      "memory_count": 3
+    },
+    {
+      "filename": "benchmark.md",
+      "tag": "benchmark",
+      "memory_count": 3
+    },
+    {
+      "filename": "current-events.md",
+      "tag": "current-events",
+      "memory_count": 3
+    },
+    {
+      "filename": "focus-zones.md",
+      "tag": "focus-zones",
+      "memory_count": 3
+    },
+    {
+      "filename": "github.md",
+      "tag": "github",
+      "memory_count": 3
+    },
+    {
+      "filename": "skill.md",
+      "tag": "skill",
+      "memory_count": 3
+    },
+    {
+      "filename": "token-discipline.md",
+      "tag": "token-discipline",
+      "memory_count": 3
+    },
+    {
+      "filename": "china.md",
+      "tag": "china",
+      "memory_count": 2
+    },
+    {
+      "filename": "context-engineering.md",
+      "tag": "context-engineering",
+      "memory_count": 2
+    },
+    {
+      "filename": "flowing.md",
+      "tag": "flowing",
+      "memory_count": 2
+    },
+    {
+      "filename": "methodology.md",
+      "tag": "methodology",
+      "memory_count": 2
+    },
+    {
+      "filename": "superpowers.md",
+      "tag": "superpowers",
+      "memory_count": 2
+    }
+  ]
+}
