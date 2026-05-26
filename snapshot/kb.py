@@ -108,24 +108,25 @@ def _format_cluster(tag: str, memories: list[dict]) -> str:
 
 
 def write_kb(buckets: dict[str, list[dict]], out_dir: Path) -> list[dict]:
-    """Write each cluster to `out_dir/{safe-tag}.md`.
+    """Write each cluster to `out_dir/memory-{safe-tag}.md`.
 
-    Returns a list of {filename, tag, memory_count} dicts for the manifest.
+    Returns a list of {filename, tag, memory_count} dicts, sorted by size
+    descending — used downstream by the bridge composer.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
     seen_names: set[str] = set()
 
-    # Sort by cluster size descending so the manifest reads largest-first
+    # Sort by cluster size descending so the bridge reads largest-first
     for tag in sorted(buckets, key=lambda t: (-len(buckets[t]), t)):
         memories = buckets[tag]
         safe = _safe_filename(tag)
-        name = f"{safe}.md"
+        name = f"memory-{safe}.md"
         # Disambiguate filename collisions if two different tags safe-name
         # to the same thing
         counter = 2
         while name in seen_names:
-            name = f"{safe}-{counter}.md"
+            name = f"memory-{safe}-{counter}.md"
             counter += 1
         seen_names.add(name)
 
@@ -139,23 +140,4 @@ def write_kb(buckets: dict[str, list[dict]], out_dir: Path) -> list[dict]:
     return written
 
 
-def write_index(written: list[dict], out_dir: Path) -> Path:
-    """Write a small INDEX.md so the user can scan what's in references/."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "# Reference index",
-        "",
-        f"_{len(written)} reference files, "
-        f"{sum(w['memory_count'] for w in written)} memories total._",
-        "",
-        "See `../manifest.md` for the topic-keyed bridge with themes per "
-        "cluster (the bridge is the recommended entry point).",
-        "",
-        "| Tag | Memories | File |",
-        "|---|---:|---|",
-    ]
-    for w in written:
-        lines.append(f"| `{w['tag']}` | {w['memory_count']} | `{w['filename']}` |")
-    path = out_dir / "INDEX.md"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+

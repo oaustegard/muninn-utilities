@@ -10,8 +10,6 @@ import ast
 import json
 from typing import Iterable
 
-# The boot script sets up sys.path so `scripts.turso` resolves to
-# muninn-utilities/remembering/scripts. Importing here piggybacks on that.
 from scripts.turso import _exec
 
 
