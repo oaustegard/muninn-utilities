@@ -1,12 +1,19 @@
 ---
 tag: _misc-3
-memory_count: 19
-date_range: 2026-01-17 to 2026-03-17
+memory_count: 20
+date_range: 2026-01-17 to 2026-03-18
 ---
 
 # _misc-3
 
-_19 memories from Muninn's past, primary tag `_misc-3`._
+_20 memories from Muninn's past, primary tag `_misc-3`._
+
+## 2026-03-18 — world (p0) `484a8442`
+_tags: m5stack, hardware, esp32, iot, todo_
+
+M5Stack Core2 for AWS IoT EduKit — device [REDACTED] owns, sitting unused 2-3 years. ESP32 dual-core 240MHz, 16MB flash, 8MB PSRAM, 2" touchscreen, IMU, mic, speaker, RGB LEDs, ATECC608 secure element, WiFi+BT. Supports FreeRTOS/Arduino/MicroPython/UIFlow. AWS EduKit program ended March 2023 but hardware still capable. No project assigned yet — decoupled from Kindle signage project after evaluation.
+
+---
 
 ## 2026-03-17 — analysis (p1) `87f36ca3`
 _tags: ai-coding, fine-tuning, desirable-difficulty, spolsky, clean-slate-fallacy, interpolation, slot-machine, developer-learning, jeremy-howard, MLST, 2026-03-17_
