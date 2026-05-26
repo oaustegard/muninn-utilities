@@ -114,16 +114,14 @@ def build_snapshot(out_dir: str | Path = "/home/claude/snapshot-out") -> dict:
     )
 
     # ── 7. Zip everything (ready to upload) ────────────────────────────────
+    # Write the archive OUTSIDE out_dir so make_archive's walk doesn't
+    # pick up a stale copy of the zip from a prior run.
+    zip_base = out_dir.parent / out_dir.name  # e.g. /home/claude/snapshot-out
     zip_path = shutil.make_archive(
-        str(out_dir / "snapshot"),
+        str(zip_base),
         "zip",
         root_dir=out_dir,
-        # Don't include the zip itself
-        # make_archive uses root_dir; we exclude by post-deleting if needed
     )
-    # The above will recurse into out_dir but won't include the zip file
-    # because the file gets created AFTER walking — except when re-running.
-    # Defensive: ensure no double-nesting if the zip already existed.
 
     return {
         "out_dir": str(out_dir),
