@@ -8,7 +8,7 @@ date_range: 2026-03-17 to 2026-04-25
 
 _2 memories from Muninn's past, primary tag `china`._
 
-## 2026-04-25 — world (dd441d20)
+## 2026-04-25 — world (p1) `dd441d20`
 _tags: demographics, east-asia, japan, south-korea, 2026-04-25_
 
 EAST ASIAN DEMOGRAPHIC RECKONING (2026)
@@ -23,7 +23,7 @@ Supply chain migration benefiting Vietnam (+7% GDP 2024), Indonesia, Philippines
 
 ---
 
-## 2026-03-17 — analysis (8bbf4699)
+## 2026-03-17 — analysis (p1) `8bbf4699`
 _tags: research, brain-drain, student-visas, us-china, STEM, education, geopolitics_
 
 RESEARCH: Chinese student visas to US and brain drain dynamics, 2015-2026.

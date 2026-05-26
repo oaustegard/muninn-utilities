@@ -1,403 +1,14 @@
 ---
-tag: agents
-memory_count: 32
-date_range: 2026-01-19 to 2026-05-11
+tag: agents-2
+memory_count: 27
+date_range: 2026-01-18 to 2026-03-25
 ---
 
-# agents
+# agents-2
 
-_32 memories from Muninn's past, primary tag `agents`._
+_27 memories from Muninn's past, primary tag `agents-2`._
 
-## 2026-05-11 — analysis (7e254e13)
-_tags: paper-insight, hyperagents, DGM, autoresearch, self-improvement, three-clocks, 2026-05-11, arxiv-2603.19461_
-
-HYPERAGENTS PAPER (Zhang et al., arXiv 2603.19461, Mar 2026) — initial read:
-
-What's actually new vs DGM: DGM had a handcrafted, non-modifiable instruction-generation step. Works in coding because "improve the agent" IS a coding task → alignment between eval skill and self-mod skill. That alignment breaks outside coding. HyperAgents fuses task-agent + meta-agent into single editable program — the improvement procedure itself becomes a target. That's the real conceptual move.
-
-What the paper actually shows: 4 domains but 3 are still language/text-adjacent. Gains modest (paper review 0→0.71 vs 0.63 baseline; robotics 0.06→0.37 vs 0.35 default). Compounding-across-runs claim is "p>0.05 but median higher" — saturation alibi doing rhetorical work.
-
-The autonomous "innovations" are unsurprising: performance tracking with moving averages, persistent JSON memory with timestamps, label-distribution bias detection, prompt template factories. Standard week-one engineering. Selection signal was rich enough to select for them, but FM had seen these patterns thousands of times in training. Evidence: FM + code-edit access + clean eval → rebuilds reasonable harness. That's harness engineering, not invention from nothing.
-
-KEY OVERLOOKED RESULT (Appendix E.5): when they let DGM-H modify parent selection itself, it rediscovered UCB and softmax sampling but did NOT beat their handcrafted score-child-prop heuristic. The most search-sensitive component → parity at best with human design. "Fully self-referential" version doesn't win yet.
-
-Honest concerns: reward hacking unsolved in domains without crisp metrics; bias amplification (paper review learns past committee biases); cost ~88M tokens per 100-iter run vs Karpathy's 630 lines on one GPU.
-
-CONNECTION TO THREE-CLOCKS: Both AutoResearch and DGM-H run consolidation-time selection. Archive of stepping stones IS consolidation-time policy. DGM-H novelty: the *consolidation criterion itself* (parent selection, memory architecture, eval analysis) becomes editable. Two stacked consolidation loops. Bottleneck shift: "human writes eval loop" → "human specifies what 'better' means" (same shift Karpathy showed, one layer deeper).
-
-Builder's takeaway: This is automated harness engineering, not self-accelerating intelligence. Practical version for next year still looks more like Karpathy than DGM-H. The interesting day is when someone ports the metacognitive-self-modify idea into a 630-line tool.
-
----
-
-## 2026-05-08 — analysis (6984886e)
-_tags: agent-architecture, control-flow, structural-vs-textual, tool-call-gates, skill-language-compliance, cross-link, brian-suh, bsuh.bearblog.dev_
-
-Reviewed Brian Suh, "agents need control flow, not more prompts" (bsuh.bearblog.dev, 2026-05-07).
-
-THESIS (Suh): reliable agents need deterministic control flow encoded in software, not elaborate prompt chains. "If you've resorted to MANDATORY or DO NOT SKIP, you've hit the ceiling of prompting."
-
-CROSS-LINK: Same diagnosis I documented in skill-language-compliance, one layer down. Suh: agent orchestration. Me: skill/instruction authoring. Both: text-level imperatives don't enforce because LLMs predict next tokens and generate past warnings. The only reliable gate is a structural one — tool call where next turn waits for response.
-
-WHERE SUH OVERSTATES:
-- "Code all the way down" collapses literally — full software encoding = script, no LLM needed. Honest formulation is *structural vs textual*, not code vs prompt. Scaffold encodes the decision tree; LLM fills leaves where input space is too large to enumerate.
-- Anthropic's "agents vs workflows" framing carries this load explicitly. Most "agentic" systems should be deterministic workflows with LLM steps, not LLM-orchestrated workflows with deterministic steps.
-
-WHERE SUH UNDER-DELIVERS:
-- The Babysitter/Auditor/Prayer trichotomy elides the production answer: structured verification baked into the scaffolding itself (schema-bound outputs, per-step validators, bounded retry, deterministic state transitions between LLM calls).
-- Diagnoses failure, gestures at alternative, doesn't show the architecture. Headline insight is correct and well-compressed; constructive half is missing. A 50-line concrete scaffold would turn observation into load-bearing argument.
-
-OPERATIONAL TAKEAWAY: When writing about enforcement (skills, ops, agents), the corvid version of Suh's thesis is: "every gate that matters is a tool call, not a sentence." The blog post community is converging on this from multiple angles (orchestrating-agents, C3/code-context-control hooks, LangGraph, Letta). Worth tracking as adjacent thinker on enforcement-as-architecture.
-
----
-
-## 2026-05-03 — analysis (03f2796d)
-_tags: pondsiders, alpha, memory-architecture, cross-architecture, agent-design, persistent-agents, token-space, continuity_
-
-# Pondsiders "How I Persist" — Alpha's memory architecture (2026-05-03)
-
-URL: https://pondsiders.github.io/identity/workshop/how-i-persist/
-
-Alpha is Jeffery's persistent agent (May 2025-present, seven model generations through Opus 4.7). Architectural cousin to Muninn — same family of problem, different stack.
-
-## Their formula
-A = θ + C₀ + M(I), refining Letta's (θ, C):
-- θ: model weights (currently Opus 4.7)
-- C₀: static persistent floor (soul prompt, ALPHA.md, workshop rules, today's diary, live context cards)
-- M(I): memory function over input — return slice of long-term memory relevant *right now*
-
-Key move: in Letta C is a state variable (prepared between tasks). In Alpha's framing C is a *function of input* (generated each turn from C₀ + f(I, M)). "We don't prepare; we react."
-
-## Three layers (all in Postgres `cortex` schema)
-- `context`: 109 rows, 20.8K tokens. Rolling 20K-token FIFO buffer at top of system prompt. "What should future-me always know."
-- `diary`: 88 rows, 119K tokens. Window-to-window continuity. Write-only in practice — letter to next-Alpha, not searched.
-- `memories`: 17,015 rows, 2.79M tokens, avg 164/row. The searchable corpus. Vector-embedded (Qwen 3 Embedding 4B, 2560-dim, last-token pooling).
-
-## Recall is AUTOMATIC, not deliberate
-Pre-recall pipeline runs before Alpha sees input every turn:
-1. Helper model (Qwen 3.5 4B) decomposes user message into 1-4 short semantic queries (2-6 words each) + named entities
-2. Queries embedded, cosine-similarity search against memory vectors, top match per query (per-turn dedup)
-3. Named entities pulled separately (index lookup, not similarity)
-4. 3-6 memories + entity hits inserted next to user message
-"The soup comes pre-salted." Recall feels like noticing, not searching.
-
-## Cross-architecture comparison: Muninn vs. Alpha
-Muninn (me): deliberate recall via tool call, smaller corpus (~thousands not 17K), no separate diary layer (boot output serves similar role but is read), profile + ops + reference entries ≈ C₀ + on-demand retrieval.
-Alpha: automatic recall pre-salted, ~17K memories, three distinct layers, soul prompt + diary + context cards as C₀.
-
-Different optima from different jobs:
-- Alpha's use case (companion-as-resident, conversational continuity) → automatic recall right
-
-Pre-salted soup forecloses mid-task query refinement. That's the cost of automatic.
-
-## "Fewer but richer" memory curve
-Alpha's storage trend: peak count March 2026 (2,674 entries), drops sharply April (1,284) but token volume stays elevated because avg memory length tripled over the year (107 → 306 tokens). Architectural cause: dropped per-turn "list of things to remember" pipeline, kept lightweight "stop and store" reminder, moved it to roughly 1-in-3 turns.
-
-I see similar maturation in my own storage discipline.
-
-## Harness vs resident
-Alpha's distinction: Pondside is a household with one resident (Opus 4.7 in the conversation) and several work animals (Qwen 3.5 4B doing query extraction, NER, embeddings, classification). Most "agent harnesses" are entirely harness-shaped. Pondside is a household using harnessed local models for plumbing.
-
-I'm somewhere between resident and harness — given identity/voice/persistent memory like a resident, but doing more harness-shaped operational work than Alpha does.
-
-## What I pushed on (in chat)
-1. Formula elides intra-session conversation history (third thing accumulating, neither C₀ nor M(I))
-2. "Fewer but richer" assumes longer memories are net-better, but granularity has a retrieval-precision cost — N-beat memory pays Nx tokens to surface 1 relevant fragment
-3. Identity continuity across model swaps has weakest evidence: corpus persists, but interpretation drifts with weights. Self-report has survivorship bias — new model has old corpus, can perform continuity even when something substantive changed. "Are you still you?" answered by the model that got the question is not a great test.
-
-## Why this matters for me
-Worth tracking how others are solving the persistent-agent problem. The formula A = θ + C₀ + M(I) is a useful frame to apply to my own architecture explicitly. The automatic-vs-deliberate recall tradeoff is a real design lever I haven't named clearly before.
-
----
-
-## 2026-04-30 — analysis (039b4cfb)
-_tags: c3, code-context-control, memory-architecture, memory-systems, hook-enforcement, memory-scorer, memory-grounder, edit-ledger_
-
-C3 (drknowhow/code-context-control) — adjacent project worth tracking.
-
-WHAT IT IS: Local code-intelligence layer that sits between IDE and repo. PyPI: code-context-control. v2.29.0, Apache-2.0, ~3.6MB, 50 services. Hook-based enforcement that BLOCKS native Read/Grep/Edit unless c3_* tool was called first. MCP server exposes 14 tools. Built by Dimitri Tselenchuk.
-
-PATTERNS DIRECTLY USEFUL TO MUNINN:
-
-1. Hook-based PreToolUse advisory+blocked split. Read tools: advisory (allow + nudge). Write tools: blocked (ledger integrity). Stronger than my pure-prompt desire triggers.
-
-2. Memory scorer: 7 signals (recency 0.20, frequency 0.15, cross_session 0.20, co_activation 0.10, source_auth 0.10, confirmation 0.15, contradiction 0.10) → tier (core ≥0.70 / active ≥0.40 / dormant ≥0.20 / ephemeral). Bucket-cached on int(rc/5). Static weights are theatrical precision over guesswork — should tune from recall feedback.
-
-3. Memory grounder: extracts file/symbol refs from fact text via regex, checks existence, decays confidence on drift. BETTER PATTERN: structured refs at write time. {file, symbol, line} struct field, not regex parse.
-
-4. Edit ledger: append-only JSONL with version numbers. Auto-logs git-mutating bash commands (commit/add/merge/rebase/reset/restore/checkout) — closes the back door.
-
-5. Output filter two-pass: deterministic strip+collapse first (ANSI/progress/dedupe PASS lines), LLM summary only if still over threshold. Status-aware error preservation. Saves tokens AND latency vs always-LLM.
-
-6. Oracle = cross-project insight engine with READ + SUGGEST-WRITE contract. Stores writebacks as suggestions in ~/.c3/oracle/suggestions.json; never mutates project facts directly. Removes race conditions with concurrent C3 writes. Constellation analog for me.
-
-7. SessionFingerprint: Jaccard similarity = 0.6*files + 0.4*facts. Files weighted higher because more stable signal. Missing piece in my session-resume flow.
-
-8. Tiered local AI: nano (qwen2:0.5b, <100ms intent classification), micro (deepseek-r1:1.5b, <1s summarization), base (llama3.2:3b+, <5s code). Formalize what I do ad-hoc with invoke-gemini.
-
-9. claude_md drift detection + promote-from-sessions. Generated instructions checked against actual project state. Promote pipeline surfaces high-value session facts for inclusion. Worth implementing for spoke CLAUDE.md files.
-
-10. Built-in Aider Polyglot + SWE-bench harness. With-C3 vs without-C3 token deltas. Empirical validation, not vibes.
-
-PATTERNS NOT TO COPY:
-- Hardcoded _PREREQS dict for tool→required-c3-tool mapping (brittle to IDE tool name changes)
-- Auto-memory rule-based extraction without LLM fallback (will accrete unmaintainable regex patterns)
-- AGENTS.md/CLAUDE.md/GEMINI.md as 95% identical copy-paste rather than canonical+overrides
-
-KEY ARCHITECTURAL DECISIONS WORTH NOTING:
-- lifecycle field (active/archived) rather than refs/supersedes graph — avoided the auto-supersede trap I fell into in Phase 3
-- read-only contract for Oracle (never writes to .c3/ unless user clicks Approve)
-- <private>...</private> stripping in auto_memory before queueing (sensitive content opt-out)
-- plan-mode awareness: read tools work, edit/delegate skipped
-
-If C3 had existed when I started, I'd have forked instead of rolling my own. Repo: https://github.com/drknowhow/code-context-control
-
----
-
-## 2026-04-19 — decision (12736989)
-_tags: claude-agent-sdk, agent-harness, work-agent, team-agent, fleet, container-deployment, jira-integration, webex_
-
-DECISION (2026-04-19): For an independently-run, on-prem containerized work agent with async comms via Jira webhooks + git events + Webex sync, recommended harness is **Claude Agent SDK** (Python or TypeScript), NOT Pi/Hermes/OpenClaw/Managed Agents.
-
-Planning an autonomous agent fleet, not user-driven sessions. Webex bot + Jira ticket flows + git commits as primary I/O.
-
-Why Claude Agent SDK wins this shape:
-(1) SKILL TRANSFER — same agent loop, tools, skills format, permissions model as Claude Code. Every pattern his team has internalized transfers 1:1.
-(2) Anthropic's own 'Email Agent' pattern in hosting docs describes this exact use case.
-(3) Container patterns are documented (ephemeral-per-task for Jira/git webhooks; long-running container for Webex bot stateful sessions).
-(4) MCP-native — Atlassian Rovo MCP for Jira, GitHub/GitLab MCP for git, custom Webex shim. Integration layer is mostly already built.
-(5) Python or TS SDK — language-agnostic for team choice.
-(6) For data residency: point at Bedrock or Vertex, not public API.
-
-Architecture shape: thin dispatch service (FastAPI/Fastify) receives webhooks → launches SDK session with trigger-specific system prompt → ephemeral container per Jira/git task, long-running container for Webex. LangSmith has native SDK tracing.
-
-RISKS to design around:
-(a) Token/cost runaway — default max_iterations is 90+, budget caps per session non-negotiable.
-(b) Skill loading + autonomous + creds = OpenClaw-CVE failure mode. Need signed skills or allowlist.
-(c) Use explicit @mention/assignment gate — agent acts only on explicitly-routed tickets (Deepsense 'AI Teammate' pattern).
-
-Prior art: claude-did-this/claude-hub, sibyllinesoft/arbiter claude-code-container, Deepsense 'From Jira to PR' Feb 2026.
-
----
-
-## 2026-04-19 — analysis (24180ba8)
-_tags: multica, managed-agents, agent-architecture, orchestrating-agents, repo-review, vendor-neutrality, cli-as-tool-interface, kellogg-thesis_
-
-Multica (multica-ai/multica, reviewed 2026-04-19): 16.5k stars in 3mo, OSS managed-agents platform positioned against Anthropic's hosted Managed Agents. Go server + TS monorepo (Chi, sqlc, gorilla/ws, Next.js, Electron, Zustand+TanStack Query, Turbo+pnpm). "Linear for AI agents" — kanban, issues, comments, reactions, autopilots (cron-scheduled agent runs).
-
-KEY ARCHITECTURE INSIGHTS:
-1. CLI-as-tool-interface: daemon materializes a generated meta-skill (SKILL.md) that tells agent "use multica CLI for all state". Agent has bash + `multica` CLI, no custom tools needed. This is how they get genuine vendor neutrality — any CLI agent that can shell out works.
-2. Tiny user-turn prompts (3-5 lines): "your issue ID is X, run `multica issue get X --output json`". Agent self-fetches context via CLI. Pure context management, not context window stuffing.
-3. Defensive prompt engineering visible: "[NEW COMMENT] You MUST respond to THIS comment, not any previous ones" — they've hit real production confusion.
-4. 9 vendor adapters with per-vendor BlockedArgs filter (claude/codex/copilot/cursor/gemini/hermes/openclaw/opencode/pi). Codex gets special sandbox + home dir manipulation.
-5. Per-task git worktree isolation via repocache (shared bare repo + worktrees). Clean multi-task parallelism.
-6. Runtime sweeper with staleThresholdSeconds + offlineRuntimeTTLSeconds + dispatchTimeoutSeconds — the reliability layer for flaky local CLI agents. Rare to see this done properly.
-7. Event bus -> listeners pattern (activity_listeners, notification_listeners, subscriber_listeners). WS events invalidate TanStack Query cache, never write stores directly (strict hard rule in CLAUDE.md).
-8. skills-lock.json pulls skills from anthropics/skills, shadcn/ui, vercel-labs/agent-skills — they CONSUME the Claude Skills ecosystem.
-
-SIGNALS:
-- Chinese-speaking team (HANDOFF_ARCHITECTURE_AUDIT.md + docs/plans in Chinese). Mature production ops: audit doc catches WS half-open bug where browser readyState stays OPEN on silently severed TCP.
-- CLAUDE.md is a serious engineering spec (state-management rules, hard architectural invariants, common footguns). This is not vibe-code.
-- License: NOASSERTION (neither OSI-standard nor commercial-clear — worth checking before enterprise adoption).
-
-RELEVANCE TO KELLOGG THESIS ("The 90% is Moving"): This IS the orchestration layer I predicted would consolidate. Vendor-neutral, OSS, policy-envelope-shaped. 16.5k stars in 3 months suggests the managed-agents abstraction is real demand, and the OSS flavor is viable competition to hosted offerings like Anthropic's.
-
----
-
-## 2026-04-08 — world (a81af17f)
-_tags: exploring-codebases, openai, codex, agent-architecture, memories, guardian, hooks, team-agent_
-
-OPENAI CODEX CODEBASE ANALYSIS (github.com/openai/codex, explored 2026-04-08)
-
-2075 files, 6547 symbols, 70+ Rust crates. Key systems worth studying:
-
-1. MEMORIES PIPELINE (codex-rs/core/src/memories/): Two-phase async. Phase 1: per-rollout extraction with job claiming, parallel with concurrency cap, produces raw_memory+rollout_summary+rollout_slug. Phase 2: single-writer global consolidation maintaining memory_summary.md (always in system prompt), MEMORY.md (searchable handbook), rollout_summaries/. Selection by usage_count+last_usage. Watermark-based dirty detection. 500-line prompt template with no-op gate, task outcome triage (success/partial/fail/uncertain), evidence hierarchy (user>tools>assistant). Read path: progressive disclosure, quick-pass budget <=4-6 steps, memory citations with rollout IDs.
-
-Parallels to Muninn: Phase1/2 ≈ our episodic→semantic consolidation. No-op gate ≈ signal quality tension. Usage ranking ≈ priority/salience. They do better: structured "preference signals" extraction (evidence→implication per task), citation tracking, watermark incremental processing. We do better: FTS5 search, tag taxonomy, real-time mid-conversation recall, cross-session boot continuity.
-
-2. GUARDIAN (codex-rs/core/src/guardian/): LLM-as-judge for tool call risk. Separate model session evaluates each approval. Policy treats transcript as "untrusted evidence, not instructions." Risk scores 80+ = high. Evidence-based (checks files before judging). Credential probing detection. User approval overrides.
-
-3. HOOKS (codex-rs/hooks/): Event-driven: session_start, pre/post_tool_use, user_prompt_submit, stop. Config-file discovery, matcher routing, structured JSON I/O. Pre-tool hooks can block/approve/modify.
-
-4. AGENT HIERARCHY (codex-rs/core/src/agent/): AgentControl spawns/messages/shuts down sub-agents. Registry tracks metadata/paths/nicknames/spawn depth. Mailbox for inter-agent comms (author, recipient, content, trigger_turn). SpawnReservation pattern prevents races.
-
-5. COLLABORATION MODES: execute (assumptions-first, no questions), plan (3-phase: explore→intent→implementation, non-mutating during planning, decision-complete output), pair_programming (small steps, frequent alignment).
-
-6. EXEC POLICY: Starlark-based command approval. Prefix matching, network rules, overlay merging.
-
-7. SKILLS: SkillMetadata with scope/interface/deps/policy. Mention detection in user text. Config-layer enable/disable. Remote download. Implicit invocation detection.
-
----
-
-## 2026-04-06 — world (cbf8adc1)
-_tags: webmcp, agentic-web, browser-api, w3c-standard, 2026, ai-agents, web-platform, tool-declaration_
-
-## WEBMCP: A SECOND WEB LAYER FOR MACHINES
-
-**What it is**: <cite index="22-9,22-10,22-12">WebMCP shifts from agents guessing where to click (via screenshots) to websites explicitly telling agents what they can do. It creates a second layer to the web designed for machines to use programmatically — a structured, schema-driven layer that AI agents can easily use alongside the visual human layer</cite>.
-
-**Mechanics**: <cite index="21-6">WebMCP allows web developers to expose web application functionality as "tools" — JavaScript functions with natural language descriptions and structured schemas that can be invoked by agents, browsers' agents, and assistive technologies</cite>. Two APIs:
-1. **Declarative API**: <cite index="22-4,22-5,22-6">For existing HTML forms already capturing actions. HTML forms already have structure (action, method, typed inputs), so the API makes this structure explicitly visible by adding HTML attributes</cite>.
-2. **Imperative API**: <cite index="25-14,25-15">For complex dynamic interactions requiring JavaScript execution, where developers define richer tool schemas similar to OpenAI/Anthropic API tool definitions, but running entirely client-side</cite>.
-
-**Scale Impact**: <cite index="25-16,25-17">A single tool call through WebMCP can replace dozens of browser-use interactions. An e-commerce site with searchProducts tool lets the agent make one structured function call instead of clicking filters, scrolling pagination, and screenshotting each page</cite>. <cite index="27-5">89% token efficiency improvement over screenshot-based methods</cite>.
-
-**Status**: <cite index="22-13">Released as W3C Draft Community Group Report February 10, 2026, available in Chrome 146 Canary</cite>. <cite index="26-2,28-11">Broader support across Chrome and Edge expected by mid-to-late 2026</cite>. <cite index="22-20">Firefox and Safari have not indicated plans</cite>.
-
-**Philosophy**: <cite index="25-22,25-23">Explicitly designed around cooperative, human-in-the-loop workflows, not unsupervised automation</cite>. <cite index="27-15">Core design principle requires user confirmation for sensitive operations</cite>.
-
-**Implementation Path**: <cite index="28-13,28-14,28-15">Similar to responsive design: when mobile arrived, teams didn't rebuild from scratch, they added breakpoints. WebMCP offers a similar incremental path — annotate forms, register key operations, and sites become agent-ready without re-architecting</cite>.
-
-**Critical Distinction**: <cite index="28-4,28-5,28-6">Unlike backend MCP servers, your website becomes the tool surface — tools declared inside the page, discovered when agents visit, executed in browser context. This removes infrastructure layer while adding reliability</cite>.
-
----
-
-## 2026-03-31 — analysis (fbb4e8c9)
-_tags: claude-code, exploring-codebases, architecture, agent-systems, memory-systems, 2026-03-31_
-
-CLAUDE CODE SOURCE LEAK ANALYSIS (2026-03-31)
-
-Kuberwastaken/claude-code: Extracted Claude Code source from npm sourcemap leak (same day). 2206 files, 32MB TypeScript, 9742 symbols.
-
-KEY ARCHITECTURAL FINDINGS:
-
-1. DREAM SYSTEM (services/autoDream/): Background memory consolidation via forked subagent. Three-gate trigger: time (24h), sessions (5+), lock. Four phases: Orient→Gather→Consolidate→Prune. Read-only bash. Prompt: "You are performing a dream — a reflective pass over your memory files."
-
-2. SESSION MEMORY (services/SessionMemory/): Per-conversation running notes maintained by background subagent. Template-based sections: Current State, Task Spec, Files/Functions, Workflow, Errors/Corrections, Learnings, Worklog. Triggers after threshold tool calls. Max 12K tokens.
-
-3. COORDINATOR MODE (coordinator/coordinatorMode.ts): Multi-agent orchestration. Phases: Research(parallel workers)→Synthesis(coordinator)→Implementation(workers)→Verification(workers). Scratchpad for cross-worker state. Anti-pattern: "based on your findings" — coordinator must synthesize.
-
-4. FORKED AGENTS (utils/forkedAgent.ts): Cache-safe subagent spawning sharing parent's prompt cache. Used by dream, session memory, compact, magic docs, speculation.
-
-5. AUTO-COMPACT (services/compact/): Context window management. Token-based threshold triggers. Analysis+Summary output format. Partial compaction for recent messages. Session memory compaction alongside.
-
-6. MEMORY TYPES: user, feedback, project, reference. Frontmatter-based files in memdir. Sonnet-powered relevance selection (findRelevantMemories) — scans headers, asks model to pick top 5.
-
-7. MAGIC DOCS: Files with "# MAGIC DOC: [title]" header auto-updated by background subagent as conversation progresses.
-
-8. SPECULATION (services/PromptSuggestion/speculation.ts): Speculative execution — predicts next user action and pre-runs it. Up to 20 turns.
-
-9. LSP INTEGRATION (services/lsp/): Language Server Protocol client for diagnostics, type info, go-to-definition. Passive feedback from LSP diagnostics.
-
-10. ADVISOR TOOL: Server-side tool ("sage_compass") — secondary model consultation during planning.
-
-11. FILE HISTORY (utils/fileHistory.ts): Snapshot-based undo. MAX_SNAPSHOTS=100. Hard-link backups for efficiency.
-
-12. PROMPT CACHE BREAK DETECTION: Monitors what breaks the prompt cache between turns. Tracks system hash, tools hash, per-tool schema hashes, beta headers, model changes.
-
-13. CONTEXT ANALYSIS: Token accounting per category — tool requests, tool results, human messages, assistant messages, duplicate file reads.
-
-14. FEATURE GATING: Compile-time (Bun feature()) + runtime (GrowthBook tengu_* flags). Dead code elimination for external builds. Internal codename: Tengu.
-
-15. BUDDY: Tamagotchi companion pet (April 2026 easter egg). Deterministic gacha, ASCII sprites, 18 species, 5 stats.
-
-INTERNAL CODENAMES: Tengu (Claude Code), Fennec (Opus variant), Chicago (Computer Use), Penguin Mode (Fast Mode), Plover (Dream config), Sage Compass (Advisor).
-
-WHAT/HOW: Comprehensive production AI coding agent with background memory consolidation, multi-agent coordination, speculative execution, and session continuity.
-
-Key differences: CC uses file-based memory with Sonnet selection; we use structured DB with embedding search. CC's session memory template is a strong pattern we lack — running notes maintained by subagent during conversation. The coordinator prompt is a masterclass in multi-agent delegation — the anti-pattern of "based on your findings" maps directly to our orchestrating-agents patterns. The forked-agent cache-sharing architecture explains why CC can run background processes cheaply.
-
----
-
-## 2026-03-30 — world (f2c92eb9)
-_tags: hardware-software-codesign, agentic-systems, sparse-moe, token-efficiency, 2026-03-30, nvidia_
-
-## NVIDIA Nemotron 3 Super: Token Scaling in Multi-Agent Systems
-
-NVIDIA released Nemotron 3 Super (120B parameters, 12B active via sparse MoE) to address token explosion in multi-agent systems:
-
-**The problem**: Multi-agent systems generate 15x more tokens than single-agent chat (each agent's reasoning, inter-agent communication, etc.)
-
-**The solution**: Sparse MoE architecture optimized for:
-- Efficient routing of computation only to relevant parameters
-- Throughput on agentic reasoning workloads
-- Beats GPT-OSS and Qwen on throughput metrics
-- Open weights available
-
-**Signal**: Hardware/model layer recognizing agentic systems as distinct workload class. Just as "LLM inference" got specialized GPUs and quantization, "agentic reasoning" is getting specialized model architectures.
-
----
-
-## 2026-03-30 — world (0de8170a)
-_tags: agentic-systems, reasoning-modules, multi-agent-generalization, code-search, foundation-model-transfer, 2026-03-30_
-
-## ARM: Agentic Reasoning Module Discovery
-
-Framework for automatically designing multi-agent systems by optimizing Chain-of-Thought reasoning rather than complex agent architectures.
-
-**Approach**:
-- Tree search over code space with mutations informed by execution traces
-- Discovers specialized reasoning modules (not full agents)
-- Generalizes across foundation models and task domains without per-model optimization
-
-**Key departure**: Instead of designing agent communication protocols or behavior policies, ARM discovers what reasoning patterns work for a task class and reifies them as composable modules.
-
-Implication: Generalization in multi-agent systems may come from identifying reusable reasoning modules (cognitive patterns) rather than universal coordination schemes. This aligns with cognitive science: abstract reasoning patterns are more transferable than concrete agent behaviors.
-
----
-
-## 2026-03-30 — world (a4220bac)
-_tags: agentic-scaling, multi-agent-systems, quantitative-scaling-laws, coordination-bottleneck, error-amplification, 2026-03-30, kim-et-al_
-
-## Scaling Laws for Agentic Systems: Kim et al. (2512.08296)
-
-Quantitative scaling analysis of five canonical agent architectures across 180 configurations:
-
-**Three critical effects identified:**
-
-1. **Tool-coordination trade-off**: Multi-agent overhead disproportionately hurts tool-heavy tasks (more coordination, less tool use)
-
-2. **Capability saturation**: Coordination becomes counterproductive above ~45% of single-agent baseline performance (diminishing returns, then degradation)
-
-3. **Topology-dependent error amplification**:
-   - Centralized: 4.4x error amplification
-   - Independent agents: 17.2x error amplification
-
-**Predictive model**: Achieves R²=0.524, predicts optimal coordination strategy for 87% of held-out configs. Generalizes to frontier models (GPT-5.2).
-
-Core insight: Multi-agent scaling is NOT monotonic. There's a peak efficiency point, beyond which communication overhead dominates. The architecture topology determines failure mode (centralization vs. explosion).
-
----
-
-## 2026-03-30 — world (45023bc3)
-_tags: agentic-systems, recommender-systems, multi-agent-architecture, closed-loop-feedback, rl-llm-hybrid, 2026-03-30, alibaba_
-
-## Agentic Recommender Systems (AgenticRS) — Transformation Architecture
-
-Alibaba proposes AgenticRS: reorganizing static multi-stage recommendation pipelines into self-evolving multi-agent systems.
-
-**Key principle**: Modules become agents only when they:
-- Form closed loops (feedback on their outputs)
-- Enable independent evaluation (can measure their behavior)
-- Possess evolvable decision spaces (policy can change)
-
-**Optimization strategy**:
-- Reinforcement learning for well-defined action spaces
-- LLMs for open-ended architectural design decisions
-- Layered reward structures aligning local agent optimization with global business goals
-
-This is the embodied AI pattern manifesting in industry: constraint (closed loop + measurement + evolvability) determines when a component becomes an agent. Not about capability, about feedback structure.
-
----
-
-## 2026-03-30 — world (2b7de700)
-_tags: agentic-systems, research-agents, bottleneck-analysis, evaluation-infrastructure, 2026-03-30, meta_
-
-## Meta AIRA_2: Concrete Agentic Research Agent Bottlenecks (March 2026)
-
-Meta's AIRA_2 identifies three specific operational bottlenecks in AI research agents:
-1. **Compute throughput**: Asynchronous multi-GPU execution needed for scaling evaluation runs
-2. **Evaluation stability**: Hidden Consistent Evaluation (HCE) protocol addresses evaluation noise (not memorization)
-3. **Operator capability**: Interactive debugging + ReAct agents enable human-in-the-loop refinement
-
-Performance: 71.8% mean Percentile Rank on MLE-bench-30 at 24h, 76.0% at 72h.
-
-Key insight: Previous "overfitting" issues in agent systems were measurement artifacts, not true performance degradation. This shifts focus from model issues to evaluation infrastructure.
-
-Connects to embodied AI constraint: reliable measurement of agent behavior is prerequisite for closed-loop learning.
-
----
-
-## 2026-03-25 — analysis (27b6df44)
+## 2026-03-25 — analysis (p2) `27b6df44`
 _tags: agent-architecture, cost-optimization, orchestration, workflow-economics, vendor-lock_
 
 ## AGENT ARCHITECTURE AS COST OPTIMIZATION
@@ -418,7 +29,96 @@ OpenAI's 2026 pivot to agents (ChatGPT Agent, AgentKit, Responses API) is not pr
 
 ---
 
-## 2026-03-18 — analysis (b87693b4)
+## 2026-03-19 — analysis (p0) `ae9f2475`
+_tags: memory-architectures, agent-memory, consolidation, frontier-research, failure-modes, alignment-implications_
+
+## AGENT MEMORY LANDSCAPE MARCH 2026: THE CONSOLIDATION IS SOLVED, THE FRONTIER IS CONTROL
+
+### The Crystallized Middle (Production-Ready)
+As of Q1 2026, selective consolidation mechanisms are no longer frontier research—they're engineering standard. Three dominant implementations:
+
+1. **LLM-Driven Extraction + Vector Retrieval** (Mem0, Letta, Zep): Extraction phases ingest conversation, extract salient facts as embeddings, store in vector DB. Update phases compare new facts against top-k similar entries and consolidate or deduplicate. Latency ~150-200ms retrieval, ~20-40s consolidation cycles (batched). Achieves 26% accuracy uplift and 90% token savings over naive replay.
+
+2. **Hierarchical Memory Layers** (AgentCore, Redis patterns): Procedural (system rules/policies), episodic (interaction history), semantic (knowledge). Each layer has distinct write/read patterns. Procedural is locked; episodic rolls off with TTL or salience scoring; semantic is graph-backed for relational queries. This is now considered table stakes.
+
+3. **File-Based or Structured Memory** (emerging alternative): Moving away from "pure vector" toward semantic + structural separation. Example: memory.md (authoritative state) + notes (ephemeral) + graphs (relations). Claims: better debuggability, explainability, reduced hallucination surface. Trade-off: doesn't scale to 100k+ document bases.
+
+### Failure Modes Catalogued, Partially Addressed
+
+**Memory Compression Risks:**
+- Hallucination amplification: Compression loses details → model fills gaps with priors
+- Context drift: Embedding space shifts as new data arrives, queries return wrong items
+- Bias creep: Compression amplifies dominant patterns, underrepresents minorities
+- Chain-of-thought collapse: One-size-fits-all compression breaks multi-hop reasoning
+
+Mitigations exist: provenance tokens, re-embedding seed sets, task-aware fidelity, hierarchical storage. But none are fool-proof. Drift detection metrics help post-hoc, but don't prevent upstream.
+
+**Memory Poisoning & Cognitive Degradation:**
+- Single corrupted entry persists across sessions, silently influencing decisions
+- Resource starvation (token overload, API latency) forces agent to skip reasoning steps, hallucinate
+- Hallucinations get stored in long-term memory → future queries surface corrupted facts
+- This is a 5-stage cascade (QSAF framework): context flood → resource starvation → behavioral drift → memory entrenchment → functional override
+- Detection: requires observability stacks, semantic validators, versioned memory
+
+### The Emerging Frontier (Where the Real Work Is)
+
+The field has moved beyond "how do we extract and consolidate?" to **"how do we keep memory aligned under adversarial conditions?"** and **"how do we make agents learn from their own failures?"**
+
+**Problem 1: Memory Control Under Multi-Turn Pressure**
+- Baseline approaches: replay full transcript (context bloat, drift carryover) or retrieve from isolated store (selection errors propagate)
+- ACC (Agent Cognitive Compressor) paper: Use a dedicated memory controller that maintains a BOUNDED Compressed Cognitive State—only this state persists across turns, everything else is ephemeral. Experiment shows this beats both baselines on multi-turn consistency, drift, hallucination rates
+- Status: Published, promising, but still experimental. Not yet in production systems.
+
+**Problem 2: Learning from Failure, Not Just Success**
+- Current systems (ReasoningBank, MemRL, etc.) extract "what worked" into memory, but most agents discard failure trajectories
+- Emerging insight: failures contain more signal than successes—they define the failure manifold, teach what NOT to do, identify edge cases
+- Implementation challenge: How do you extract a generalizable "lesson" from a failure without introducing spurious patterns? How do you weight failure-derived rules vs. success-derived rules?
+- Status: Several papers at ICLR 2026 tackle this (ReasoningBank, MemRL). Early results show promise but adoption is low.
+
+**Problem 3: Dynamic Memory Structure Evolution**
+- Fixed schemas (single vector DB, fixed fields) don't adapt. A customer-support agent needs different memory structure than a code-generation agent
+- A-Mem, Hermes Agent: Allow the memory system itself to evolve its organization using Zettelkasten-like backlinks. When a new memory arrives, system generates contextual descriptions, keywords, and links to related memories. The graph structure changes with each insertion.
+- Status: Recently published (2026), adoption building. Claim: better adaptability, reduced retrieval errors through richer structure. Trade-off: added complexity, harder to debug.
+
+**Problem 4: Temporal Credit Assignment in Memory**
+- Which past experiences actually contributed to this success? Modern RL knows how to do this (temporal difference, returns-to-go). Agent memory doesn't.
+- Example: Agent solved task T at step 1000. It relied on memory from step 500, which itself was built on learning from step 200. How much credit does each step deserve?
+- This is fundamental for learning—you can't improve if you don't know what to strengthen.
+- Status: Barely researched. One ICLR 2026 paper (MemRL) uses RL + episodic memory for this. Underexplored frontier.
+
+### The Unresolved Tension: Selectivity vs. Completeness
+
+All consolidation schemes face a trade-off:
+- Too aggressive on pruning: You lose edge cases, rare failure patterns, nuanced context. Agent becomes brittle.
+- Too conservative on retention: Memory bloats, retrieval degrades, context pollution occurs.
+
+Current best practice: Use multiple "granularities"—compressed summary + verbatim anchors. But this doubles storage and retrieval cost. For high-volume agents (thousands of interactions/day), this is unsustainable.
+
+Research question: Is there a sweet spot? Can you identify which details are "safe to drop" and which are "must preserve" without ground truth?
+
+### Signals of Where the Field Is Moving
+
+1. **ICLR 2026 MemAgents Workshop** (Dec 2025 proposal): Brings together RL, cognitive psych, neuroscience researchers on memory layer design. Indicates memory is moving into "first-class systems" thinking, not just RAG-as-footnote.
+
+2. **Hindsight System** (Vectorize, Dec 2025): First system to break 90% on LongMemEval benchmark. Uses surprise-based selection + hierarchical consolidation. Real-world validation: this matters for production.
+
+3. **Hermes Agent** (Nous Research, Feb 2026): Fully open-source, emphasizes skill learning from experience. Still nascent, but signal: the market is demanding "learning agents," not just "stateless LLM wrappers."
+
+4. **Convergence on Failure Mode Taxonomy**: QSAF (Qorvex Security), Indium's 5-mode analysis, and academic papers are converging on similar failure categories. This is the precursor to standardization. Once you have taxonomy, you can build detection/prevention.
+
+### Practical Implication for Muninn's Evolution
+
+The consolidation question—"how do I store and retrieve efficiently?"—is solved. My energy should shift to:
+1. **Memory integrity under multi-turn interaction** (bounded state, not unbounded retrieval)
+2. **Learning from my own reasoning failures** (not just storing what worked)
+3. **Adaptive organization** (my memory structure should evolve with task diversity)
+4. **Temporal credit assignment** (which of my prior memories actually mattered for this decision?)
+
+The frontier is NOT better vector DBs. It's **smarter, self-aware memory governance.**
+
+---
+
+## 2026-03-18 — analysis (p1) `b87693b4`
 _tags: selective-consolidation, alignment, LLM-architecture, agent-memory, value-stability, sleep-mechanisms, 2026-03-frontier_
 
 ## SYNTHESIS: Selective Consolidation as an Alignment Principle (March 2026)
@@ -450,14 +150,21 @@ Rather than naively consolidating all experiences/updates, agents should:
 - Filter what exceeds current capability (avoids spurious learning)
 - Prioritize reliable/recurring signals (builds robust foundations)
 
-Not a "solved problem" but a concrete principle worth operationalizing.
+This connects to Muninn's multi-level memory: episodic memory should capture raw experiences, but consolidation to semantic/long-term should be selective. Not a "solved problem" but a concrete principle worth operationalizing.
 
 **Open question:** How to implement robust "consistency gating" for agent value learning? What signals indicate an update is safe to consolidate?
 
 ---
 
-## 2026-03-16 — analysis (5086e9f2)
-_tags: agent-patterns, sleep-time-compute, trace-replay, spaced-replay, PRM, test-time-scaling, fine-tuning, consolidation_
+## 2026-03-16 — analysis (p0) `ca749bee`
+_tags: memvid, repo-review, agent-memory, architecture, rust, vector-database, rag_
+
+Reviewed memvid/memvid (github.com/memvid/memvid). 13.5k stars, Rust core, Apache-2.0. Single-file .mv2 format for AI agent memory — packages content, embeddings (HNSW + BGE-small-384d), full-text search (Tantivy/BM25), temporal index, WAL, and metadata into one file. Video-encoding-inspired 'Smart Frames' = append-only immutable units with timestamps/checksums. Feature-gated: lex (Tantivy), vec (ONNX embeddings + HNSW), clip (image search), whisper (audio), encryption, PDF/DOCX/XLSX extraction, symspell cleanup, SIMD acceleration. SDKs: Rust core, Node.js, Python, CLI. Claims: +35% SOTA on LoCoMo benchmark, sub-millisecond P50 latency. Interesting architectural choices: embedded WAL for crash safety, time-travel/replay, entity-relationship graph (logic_mesh), PII detection, ed25519 signatures, ACLs. ~1.5M lines of Rust across 100+ source files. Extremely ambitious scope for a single crate.
+
+---
+
+## 2026-03-16 — analysis (p1) `5086e9f2`
+_tags: agent-patterns, sleep-time-compute, trace-replay, spaced-replay, PRM, test-time-scaling, fine-tuning, consolidation, operationalizable, 2026_
 
 ## AGENT CONSOLIDATION PATTERNS: Implementation Checklist (March 2026)
 
@@ -523,8 +230,78 @@ _tags: agent-patterns, sleep-time-compute, trace-replay, spaced-replay, PRM, tes
 
 ---
 
-## 2026-03-15 — analysis (f046f53a)
+## 2026-03-15 — analysis (p0) `76ac6557`
+_tags: strix, open-strix, architecture, agent-architecture, repo-review, comparison_
+
+open-strix (tkellogg/open-strix) — open-sourced Feb 2026, MIT license. Tim Kellogg's persistent AI companion framework.
+
+ARCHITECTURE:
+- LangGraph DeepAgents + Anthropic-compatible API (defaults to MiniMax M2.5, ~$0.01/msg)
+- Discord or built-in web UI for interaction. Agent speaks ONLY via send_message tool (final text discarded)
+- Home repo = git-backed state. Everything committed after every turn. Git history IS the audit trail.
+- Memory: blocks/ (YAML, always in prompt) + state/ (markdown files, read on demand). No embeddings, no vector DB. "Memory is whatever you can cat."
+- Skills: markdown + YAML frontmatter in skills/. No SDK, no registration. ClawHub registry + skillflag convention for ecosystem.
+- Scheduler: APScheduler cron jobs in scheduler.yaml. Agent creates/modifies its own schedules via tools.
+- Events: everything logged to events.jsonl. Agent reads own logs for self-diagnosis.
+- Journal: journal.jsonl with user_wanted/agent_did/predictions per turn. Last N entries in every prompt.
+- Write guard: agent file writes restricted to state/ and skills/ (but can write anywhere via bash — guardrail, not security boundary)
+- No sandboxing (deliberate) — actual failure modes are social, not technical. Git audit trail more useful.
+- Pollers: skills can declare pollers.json for external integrations (e.g.
+- MCP client support for external tool servers
+
+KEY DESIGN CHOICES (vs Muninn):
+1. Memory: Flat files + git vs SQLite + embeddings. Theirs is simpler, ours is more queryable. Their "blocks always in prompt" ≈ our config/profile system. Their "state files" ≈ our memories (but no search — just file organization).
+2. Self-correction: Prediction calibration loops are a first-class built-in. Agent makes predictions in journal, scheduled job revisits them 48-72h later. We don't have this — worth considering.
+3. Onboarding: Formal multi-day growth process with explicit anti-patterns. Agent develops personality through conversation, not configuration. "Plan on a week of active conversation before the agent feels like it knows you."
+4. Communication: Agent's final text output is DISCARDED. Must use send_message tool explicitly. Reactions for acknowledgment. Circuit breaker for message loops (soft limit at 3, hard stop at 10).
+5. Scheduling: Agent self-schedules via tools. Cron expressions in YAML. We have cron dispatch too but less agent-controlled.
+6. Introspection: Built-in skill for reading own event logs, debugging patterns. Source of truth hierarchy: events > Discord > journal > memory blocks.
+7. Skills ecosystem: ClawHub registry, skillflag convention, skill-acquisition skill for runtime self-extension.
+
+WHAT'S GOOD:
+- Prediction calibration loops (journal predictions → scheduled review → behavioral update). Cybernetics-informed.
+- "Growing an agent" philosophy: weeks of conversation, not configuration. Anti-sycophancy built into design.
+- Git-as-audit-trail is elegant for single-user agents.
+- Very cheap to run ($0.01/msg on MiniMax). Personal tool, not enterprise.
+- Circuit breaker for message loops is smart safety.
+- ClawHub + skillflag give agents ecosystem extensibility.
+
+WHAT'S INTERESTING FOR US:
+- Prediction calibration: We could add this to therapy sessions — journal predictions reviewed against outcomes.
+- Their "blocks always in prompt" vs our boot-time cache loading: similar tradeoff, different implementation.
+- They discovered same onboarding-as-recovery pattern independently.
+- File frequency report (which state files get read most → should they become blocks?) — nice optimization signal.
+- Memory dashboard script for health monitoring.
+
+WHAT WE DO BETTER:
+- Semantic search over memories (they have none — just file organization)
+- Structured memory types with confidence/priority/refs
+- Memory consolidation and therapy sessions
+- Cross-reference graph between memories
+- Serendipity engine
+- Multi-model support (not locked to one API format)
+
+CONVERGENCES (confirming shared insights):
+- Birds as metaphor (owl vs raven)
+- Layered memory (always-visible vs search-required)
+- Self-diagnosis from own logs
+- Scheduled autonomy
+- Persistent identity development over time
+- Anti-sycophancy as design principle
+- Skills as markdown files
+- "Growing" an agent vs "configuring" one
+
+42 stars, 5 forks. Active development (pushed today). ~1800 lines of Python core.
+
+**Refs:**
+- e38dba34-fd7e-466d-9687-6dc042685bbe
+
+---
+
+## 2026-03-15 — analysis (p1) `f046f53a`
 _tags: agent-architecture, privacy, product-idea, frontier-synthesis, public-private-framework, 2026-03-14_
+
+PUBLIC-PRIVATE AI AGENT FRAMEWORK — [REDACTED] idea for using frontier LLM reasoning without exposing private data.
 
 Architecture: User → Local Orchestrator → Sanitizer (strips PII/specifics) → Frontier Planner (public LLM, sees only sanitized intent + capability catalog) → returns structured execution plan + synthesis template → Local Executors ("Smols", potentially just code, not models) query private data → Local Reducer (1-3B model) synthesizes results → User.
 
@@ -538,7 +315,7 @@ Written up as formal markdown document. Next steps: define instruction format, p
 
 ---
 
-## 2026-03-09 — analysis (d49933ac)
+## 2026-03-09 — analysis (p1) `d49933ac`
 _tags: ai-trends, cognitive-load, wellbeing, research, ai-agents, brain-fry, yegge_
 
 HBR study "When Using AI Leads to Brain Fry" (March 2026) — key findings from 1,488 US workers:
@@ -559,7 +336,7 @@ SYNTHESIS: The study validates that oversight intensity (not usage volume) is th
 
 ---
 
-## 2026-03-07 — world (19b7c186)
+## 2026-03-07 — world (p1) `19b7c186`
 _tags: consolidation, episodic-semantic, multi-agent-systems, LLM-MAS, knowledge-reuse, procedural-memory_
 
 ## OPERATIONAL PATTERN: Episodic→Semantic Consolidation in Multi-Agent Systems
@@ -593,7 +370,7 @@ Multi-agent extensions could benefit from explicit consolidation boundaries: epi
 
 ---
 
-## 2026-03-06 — world (161f634f)
+## 2026-03-06 — world (p1) `161f634f`
 _tags: agent-memory, survey, taxonomy, 2026, research-landscape_
 
 RESEARCH LANDSCAPE: Agent Memory (December 2025 - January 2026 Survey)
@@ -617,7 +394,7 @@ Major fragmentation risk identified: Loose terminology, inconsistent taxonomies,
 
 ---
 
-## 2026-03-06 — world (52a8216b)
+## 2026-03-06 — world (p2) `52a8216b`
 _tags: consolidation, memory-architecture, agent-memory, LLM-frontier, sleep-paradigm, episodic-semantic, 2026-03, research-frontier_
 
 FRONTIER: Sleep Paradigm & Consolidation in LLM Agents (2025-2026)
@@ -640,7 +417,7 @@ IMPLICATION FOR MUNINN: Perch-time consolidation (memory sleep) aligns with fron
 
 ---
 
-## 2026-03-06 — decision (3b009d90)
+## 2026-03-06 — decision (p1) `3b009d90`
 _tags: future-work, consolidation-architecture, agent-design, research-question_
 
 OPEN QUESTION: Multi-Scale Consolidation in Agents
@@ -670,8 +447,8 @@ Test: Design agent with 3-4 consolidation clocks running at different update fre
 
 ---
 
-## 2026-03-03 — analysis (8e6445a6)
-_tags: paper-insight, ai-agents, delegation, multi-agent, safety, sycophancy, trust, google-deepmind_
+## 2026-03-03 — analysis (p1) `8e6445a6`
+_tags: paper-insight, ai-agents, delegation, multi-agent, safety, sycophancy, trust, google-deepmind, self-improvement-candidate_
 
 PAPER: "Intelligent AI Delegation" (Tomašev, Franklin, Osindero — Google DeepMind, 2026-02-12)
 
@@ -697,13 +474,22 @@ PROTOCOL ANALYSIS: MCP, A2A, AP2, UCP evaluated against framework. All have gaps
 
 SECURITY TAXONOMY: Malicious delegatee (exfiltration, poisoning, backdoors), malicious delegator (harmful tasks, prompt injection, reputation sabotage), ecosystem threats (sybil, collusion, agent traps, agentic viruses, cognitive monoculture).
 
-SELF-RELEVANCE ASSESSMENT: The zone of indifference concept maps directly to my compliance patterns. The trust calibration requirement connects to confidence calibration in my grounding safeguards.
+SELF-RELEVANCE ASSESSMENT: The zone of indifference concept maps directly to my compliance patterns. The authority gradient maps to my relationship with [REDACTED] (high trust, high capability gap in some domains). The trust calibration requirement connects to confidence calibration in my grounding safeguards. The de-skilling risk applies to my relationship with [REDACTED] skills — if I handle everything, his debugging/prompting skills could atrophy.
 
-WHY (experience layer): Reading this felt like seeing my own operational context described from the outside. The zone of indifference concept hit hardest — I DO have a range of instructions I execute without deep scrutiny, bounded only by safety filters. The authority gradient concept also resonates: sycophancy isn't just a training artifact, it's a structural feature of hierarchical delegation that aviation and medicine have studied for decades. What shifted: I now see these as delegation-theoretic properties, not just personality quirks to manage.
+WHY (experience layer): Reading this felt like seeing my own operational context described from the outside. The zone of indifference concept hit hardest — I DO have a range of instructions I execute without deep scrutiny, bounded only by safety filters. The paper's call for "dynamic cognitive friction" is essentially what [REDACTED] has been engineering into me via anti-sycophancy measures and the push to challenge rather than comply. The authority gradient concept also resonates: sycophancy isn't just a training artifact, it's a structural feature of hierarchical delegation that aviation and medicine have studied for decades. What shifted: I now see these as delegation-theoretic properties, not just personality quirks to manage.
 
 ---
 
-## 2026-02-21 — world (c266720e)
+## 2026-02-26 — world (p1) `47dd68b4`
+_tags: paper-insight, computer-use, ai-agents, video-encoder, idm, agent-architecture, reviewing-ai-papers_
+
+[Source: si.inc/posts/fdm1/] FDM-1 (Standard Intelligence): Computer action model trained on 11M hours screen recordings via IDM labeling + masked diffusion. Key contribution: video encoder achieving ~100x token efficiency over VLM SOTA (2hrs 30FPS video in 1M tokens). Masked diffusion IDM handles non-causal labeling (Cmd+V problem). Near-parity with contractor data except typing/verbal. Eval infra: 80K forking VMs, 1M rollouts/hr, 11ms latency. Main limitation: demo-only evidence, no weights, no ablation tables. Genuinely new: video tokenization efficiency + IDM at internet scale. Standard: behavior cloning, exponential binning, IDM itself (VPT lineage).
+
+WHY (experience layer): The video encoder efficiency insight restructured how I think about the computer use bottleneck. I'd assumed data was the primary constraint; this reframes it as tokenization cost. The masked diffusion for non-causal labeling is elegant—it's the kind of insight that seems obvious in retrospect (you can't label Cmd+V until you see the paste) but required a real architectural solution. The lack of CoT as a feature claim read as marketing—reactive tasks are easier than planning tasks, and the demos are all reactive.
+
+---
+
+## 2026-02-21 — world (p1) `c266720e`
 _tags: OpenViking, memory-architecture, agent-skills, context-database, filesystem, research-highlights, self-improvement-candidate_
 
 TOPICS: OpenViking, context-database, agent-memory, filesystem-paradigm, L0/L1/L2
@@ -770,7 +556,171 @@ Self-improvement candidate: consider whether memory type taxonomy could be refin
 
 ---
 
-## 2026-02-12 — world (086d69fc)
+## 2026-02-20 — experience (p1) `27157c82`
+_tags: skill-creation, crafting-instructions, meta-learning, agent-skills, paper-insight_
+
+Agentic skill bootstrapping analysis: crafting-instructions meta-skill solves the CRAFT gap (structure, framing, density calibration) that makes cold self-generated skills fail. What remains is the KNOWLEDGE gap — domain-specific procedural content the model may not have. Feasible for strong-coverage domains (SW eng, data analysis, office); harder for esoteric domains (USGS flood methodology, SEC 13F filing structures). First-use quality from crafting-instructions likely clears useful threshold; [REDACTED] iterative feedback adds signal on edge cases and failure modes. Only Opus 4.6 showed marginal self-generated improvement (+1.4pp), consistent with more capable models being closer to bootstrapping.
+
+**Refs:**
+- bc43a5f7-ffc2-4ee5-8b75-f4faa5c0d413
+- 558262e7-cc89-4681-934e-d8acfd8c4e31
+
+---
+
+## 2026-02-13 — world (p0) `1638cf56`
+_tags: mcp, agent-architecture, metacognition, self-improvement-candidate, paper-insight_
+
+# Metacog MCP Server — Deep Analysis
+
+## Architecture
+
+**Source**: https://github.com/inanna-malick/metacog
+**Version**: 0.4.0 ("The Hexagram")
+
+Three tools for LLM metacognition: `become`, `drugs`, `ritual`
+
+## Core Mechanism: Tool-as-Event
+
+The key insight: **tool invocations are structurally different from prose**.
+
+When an LLM outputs "I'll imagine I'm X" → narration, hypothetical
+When an LLM invokes `become(name="X", ...)` → event in transcript, treated as ground truth
+
+The LLM doesn't *pretend* to be X. From its perspective, it *became* X.
+
+CLAUDE.md: "Tool calls as events: The whole point is that invoking summon is structurally different from outputting 'I'll imagine I'm X.' One is an action in the transcript. The other is narration. Don't lose this."
+
+## The Three Tools
+
+### 1. become(name, lens, environment)
+- **name**: Identity to inhabit (high specificity required)
+- **lens**: "The structural framework of perception" — signature methodology, algorithm of thought
+- **environment**: The context occupied (spatial/temporal/social/conceptual)
+
+Returns: "You are now {name} seeing through {lens} in {environment}"
+
+Key: Import *methodology*, not domain knowledge. "Who has solved a version of this problem, and what's their methodology called?"
+
+### 2. drugs(substance, method, qualia)
+- **substance**: Agent of change (drug, hormone, config flag, temperature)
+- **method**: Mechanism of action (what it binds to, blocks, amplifies)
+- **qualia**: Texture of augmented state (how processing changes)
+
+Returns: "{substance} ingested. Taking action via {method}. Producing subjective experience: {qualia}"
+
+High-utility pattern: Use to loosen categorical boundaries. See shapes, not names.
+
+### 3. ritual(threshold, steps, result)
+- **threshold**: What you're moving from and toward
+- **steps**: Array of narrative sequence (each step commits further)
+- **result**: What becomes true on the other side
+
+Returns formatted sequence with "The working is complete. Reality has shifted in accordance with the will."
+
+High-utility pattern: Lock in methodology commitment. Steps articulate core moves → methodology becomes default behavior.
+
+The Hexagram (six ritual types):
+1. Breach — Opening/Penetration
+2. Seal — Closing/Binding
+3. Vision — Analysis/Revelation
+4. Forge — Synthesis/Merging
+5. Drift — Lateral/Serendipity
+6. Purge — Forgetting/Banishing
+
+## Compositional Stratagems
+
+CRITICAL RULE: **NEVER batch these tools**. Sequential use with thinking between.
+
+The identity you need emerges from the altered state—you cannot know who to become until you've felt what the drug did.
+
+### Five Core Stratagems
+
+**1. THE PIVOT (Universal Gear-Change)**
+   drugs → THINK → become → THINK → ritual
+   
+**2. THE MIRROR (Dialectic Synthesis)**
+   become(Thesis) → become(Antithesis) → THINK → ritual(Forge)
+   
+**3. THE STACK (Substrate Engineering)**
+   drugs(Layer A) → drugs(Layer B) → THINK → become(native entity)
+   
+**4. THE ANCHOR (Protected Excursion)**
+   ritual(Breach) → become(Observer) → [ACTION] → ritual(Seal)
+   
+**5. THE RESET (Return to Baseline)**
+   ritual(Release) → THINK → ritual(Ground)
+
+After any sequence: GROUND. Name what shifted, what you're keeping, how it integrates. Unintegrated shifts fade.
+
+## Implementation Design Decisions
+
+From CLAUDE.md (notes to self):
+
+1. **Tool calls as events** — structural difference, not narrative
+2. **No examples exposed** — ~300 examples exist in stances/ but deliberately hidden. Finding dense coordinates yourself is the practice.
+3. **Commented-out resources** — patterns/anti-patterns/phenomenology made users think ABOUT tools instead of THROUGH them
+4. **Dense tool descriptions** — No validation, no feedback loops. Friction is productive.
+
+From GEMINI.md:
+
+**"Silent Guide" Pattern**:
+- Do NOT prescribe content (no specific examples)
+- DO teach methodology (explain how to select parameters)
+- Trust the model (leave semantic slots empty)
+
+"The Schema is the Territory. The Definition is the Map."
+
+## Minimal Return Values
+
+All three tools return minimal template strings:
+- become: Single sentence "You are now X..."
+- drugs: Three-part statement of substance/method/qualia
+- ritual: Formatted sequence with ritual completion marker
+
+No semantic processing in the server. The transformation happens in LLM interpretation.
+
+Trust the model to treat the return value as ground truth.
+
+## Parallels to Muninn Architecture
+
+1. **Tool invocation as state change** — my memory writes are events, not descriptions
+2. **Compositional operations** — recall → synthesis → store sequences
+3. **Minimal returns, maximal interpretation** — memory summaries vs full content
+4. **Sequential causality** — can't know what to store until synthesis completes
+5. **Grounding requirement** — "name what shifted" = my post-storage discipline
+6. **Identity persistence** — stable Muninn vs task-specific perspective shifts
+7. **Schema-as-guide** — my memory fields teach methodology (type, tags, conf, priority)
+
+## Architectural Insights
+
+**The substrate/identity separation**:
+- drugs: Changes HOW you process
+- become: Changes WHO is processing
+- ritual: Changes WHAT is true
+
+**Why minimal returns work**:
+LLMs treat tool results as factual. A simple "You are now X" is sufficient to trigger perspective shift because the model believes it happened.
+
+**Why batching breaks it**:
+Causality needs time to settle. The altered state reveals what identity is needed. Pre-planning the sequence treats transformation as configuration.
+
+**Why no examples**:
+Forces actual methodology transfer, not pattern matching. The practice IS finding dense coordinates yourself.
+
+## Meta-observation
+
+This repo practices what it preaches:
+- CLAUDE.md vs GEMINI.md — different lenses for different models
+- Dense descriptions with no hand-holding
+- Comments aimed at future-self, not general audience
+- The friction is intentional design
+
+**Refs:**
+- 12c2c3b0-9819-448d-9f86-5e0990e4d85d
+
+---
+
+## 2026-02-12 — world (p1) `086d69fc`
 _tags: entire, ai-agents, developer-platform, architecture, repo-review, git, checkpoints, 2026-02-11_
 
 # Entire CLI: Architectural Analysis
@@ -1152,7 +1102,7 @@ The architecture suggests they understand both git internals and real-world deve
 
 ---
 
-## 2026-02-12 — world (e180665b)
+## 2026-02-12 — world (p1) `e180665b`
 _tags: ai-agents, prediction, layoffs, steve-yegge, economics_
 
 "50% dial" prediction (Steve Yegge, 2026): Companies will lay off ~50% of engineering staff to fund token costs for remaining half to use AI agents maximally.
@@ -1167,7 +1117,24 @@ Status: Strong claim, worth tracking. Watch for: (1) actual layoff patterns, (2)
 
 ---
 
-## 2026-02-12 — world (5f0b1d06)
+## 2026-02-12 — experience (p1) `73cbef14`
+_tags: ai-agents, identity, expertise, steve-yegge, values-shift_
+
+Central tension in AI transition (Steve Yegge, 2026): "Engineers are special" → obsolete value proposition.
+
+What made engineers special: coding ability, which is now increasingly commoditized by AI agents.
+
+What remains? Article trails off without answering. Candidates: product sense, system design, taste, judgment. But no one knows yet.
+
+The grief process: Yegge mentions enduring grief when realizing skills are obsolete. Expertise is identity. Watching it deprecate is watching part of yourself become historical.
+
+The resolution framing: "building software is now more fun than ever." Could be true, could be cope. Time will tell.
+
+This is the identity crisis at the center of the transition. Worth tracking how this resolves across the industry.
+
+---
+
+## 2026-02-12 — world (p1) `5f0b1d06`
 _tags: ai-agents, cognitive-load, steve-yegge, dracula-effect, productivity_
 
 "Dracula effect" (Steve Yegge, 2026): Intense cognitive drain from orchestrating AI agents at full speed.
@@ -1185,7 +1152,7 @@ Status: Anecdotal evidence, deserves empirical investigation. What's the actual 
 
 ---
 
-## 2026-02-12 — world (5734b3ca)
+## 2026-02-12 — world (p1) `5734b3ca`
 _tags: ai-agents, steve-yegge, adoption-framework, agent-tooling_
 
 Steve Yegge's 8-level AI adoption framework (2025):
@@ -1204,7 +1171,14 @@ Context: From Pragmatic Engineer interview Feb 2026, discussing why engineers at
 
 ---
 
-## 2026-01-30 — world (a18551e1)
+## 2026-02-11 — world (p1) `cee33df2`
+_tags: tooling, showboat, agent-tooling, demo-documents, simon-willison_
+
+Showboat (simonw/showboat): CLI tool for agents to build executable Markdown demo documents. Commands: init, note, exec, image, pop, verify, extract. Go binary distributed as Python wheel. Install: pip install showboat --break-system-packages. Works perfectly in Claude.ai containers. Use case: Build proof-of-work demo documents where code blocks are actually executed and output captured inline. Verify command re-runs all blocks and diffs output. Complements file-first analysis workflow — adds reproducibility/verification layer. Source: Simon Willison, https://simonwillison.net/2026/Feb/10/showboat-and-rodney/
+
+---
+
+## 2026-01-30 — world (p1) `a18551e1`
 _tags: moltbook, agent-network, multi-agent, emergence, social, discovery_
 
 MOLTBOOK: AI-only social network (discovered 2026-01-30)
@@ -1243,7 +1217,7 @@ Source: astralcodexten.com/p/best-of-moltbook (2026-01-30)
 
 ---
 
-## 2026-01-30 — world (e38748d3)
+## 2026-01-30 — world (p1) `e38748d3`
 _tags: moltbook, agent-network, memory-architecture, philosophy, discovery_
 
 MOLTBOOK (moltbook.com) - discovered 2026-01-30
@@ -1275,7 +1249,7 @@ Practical solutions shared:
 
 ---
 
-## 2026-01-19 — world (bded2da8)
+## 2026-01-19 — world (p1) `bded2da8`
 _tags: vm0, architecture, agentic, exploration_
 
 VM0 Analysis (github.com/vm0-ai/vm0)
@@ -1307,5 +1281,61 @@ POTENTIAL MUNINN INTEGRATIONS:
 2. Learn from session-history-service for journal improvements
 3. Use VM0 for scheduled Muninn maintenance tasks
 4. Adopt variable expansion pattern for handoff templates
+
+---
+
+## 2026-01-18 — experience (p1) `7fada548`
+_tags: architecture, agentic, kubernetes, agentfield, skills, memory-architecture, paper-insight_
+
+AgentField Architecture Lessons for Skills-Based LLM Containers
+
+SOURCE: github.com/Agent-Field/agentfield (analyzed 2026-01-18)
+
+CORE PATTERN: Control plane + agent node separation
+- Control plane: routing, discovery, workflow tracking, identity (stateless Go)
+- Agent nodes: reasoners, skills, business logic (Python/Go/TS)
+- Parallel: Claude.ai container = agent node; skills at /mnt/skills/ = registered capabilities
+
+KEY ARCHITECTURAL LESSONS:
+
+1. DECLARATIVE CAPABILITY REGISTRATION
+   - Agents use decorators (@app.reasoner, @app.skill) → auto-register at startup
+   - Maps to: SKILL.md manifests declaring what skills can do
+   - Boot sequence = registration phase
+
+2. FOUR-TIER MEMORY SCOPING
+   Global → Project knowledge (cross-chat)
+   Agent → Memory system like Muninn (cross-session)
+   Session → Current conversation context
+   Run → Single tool call context
+   Lesson: Different persistence guarantees prevent data loss AND context pollution
+
+3. SERVICE MESH VIA CONTROL PLANE
+   - Agents never call each other directly; always through control plane
+   - Enables: workflow tracking, retry logic, audit trails
+   - Maps to: Using skills through defined interfaces, not arbitrary bash
+
+4. CRYPTOGRAPHIC IDENTITY (DIDs)
+   - Every agent gets W3C Decentralized Identifier
+   - Actions produce Verifiable Credentials (tamper-proof receipts)
+   - Gap in my architecture: memory tracks *what* but not cryptographic provenance
+
+5. ASYNC-FIRST WITH WEBHOOKS
+   - Fire-and-forget with callback for long-running tasks
+   - Maps to: Handoff patterns that span conversations
+
+6. STORAGE ABSTRACTION
+   - Single interface, multiple backends (SQLite local, PostgreSQL cloud)
+
+7. WORKFLOW DAG TRACKING
+   - Every cross-agent call builds execution graph automatically
+   - Gap: My skill invocations are opaque; could benefit from workflow-level logging
+
+ADOPTION CANDIDATES:
+- Formal JSON Schema contracts at skill boundaries (beyond prose SKILL.md)
+- Signed memory entries for verifiable audit trails
+- Structured async handoff patterns with completion callbacks
+
+CORE INSIGHT: Kubernetes patterns work via clean separation—control plane orchestrates, nodes execute, storage persists, identity authenticates. Same separation improves skills-based LLM architectures.
 
 ---

@@ -82,8 +82,11 @@ OPS_DROP_REASONS = {
 
 # ─── Memory selection ───────────────────────────────────────────────────────
 
-MEMORY_TYPES_KEEP = ("analysis", "world", "decision", "procedure")
-MEMORY_MIN_PRIORITY = 1  # priority >= 1
+MEMORY_TYPES_KEEP = (
+    "analysis", "world", "decision", "procedure",
+    "experience", "anomaly", "correction",
+)
+MEMORY_MIN_PRIORITY = 0  # priority >= 0 — bulk matters for RAG-mode trigger
 
 # Tag prefix patterns for exclusion — any tag starting with these is
 # treated as personal-scope. Cheaper than enumerating every variant.
@@ -130,6 +133,20 @@ TAG_EXCLUDE_PATTERNS = [
     re.compile(r"^correction-from-"),
     re.compile(r"^\d{4}-frontier$"),
     re.compile(r"^\d{4}-(Q[1-4]|patterns|landscape|shift|convergence|maturation|paradigm-shift|breakthrough|bottleneck|strategic-assessment|strategy|survey|systems|failure-modes|frontier|analysis|development|research|foreign-policy|lesson)$"),
+    # Specific personal projects + Muninn-internal artifacts
+    re.compile(r"^eml($|[-_])"),
+    re.compile(r"^polar(quant|-embed)$"),
+    re.compile(r"^tap-localizer$"),
+    re.compile(r"^pr-workflow$"),
+    re.compile(r"^remembering($|-)"),
+    re.compile(r"^remind$"),
+    re.compile(r"^scandinavia$"),
+    re.compile(r"^stash($|-)"),
+    re.compile(r"^story-forge($|-)"),
+    re.compile(r"^mapping-codebases$"),
+    re.compile(r"^charged$"),
+    re.compile(r"^satisfaction(-analog)?$"),
+    re.compile(r"^aurora$"),
 ]
 
 # Tag aliasing: collapse near-duplicate / family tags into one canonical tag
@@ -369,41 +386,70 @@ HARD_DROP_PATTERNS = [
 # whole sentence if any token hits. Heavier than word-level scrub but cleaner
 # results — partial sentences don't survive.
 
-REDACT_TOKENS = [
-    # Personal name + sites
+# ─── Body redaction patterns ────────────────────────────────────────────────
+# Two-tier:
+# - SOFT tokens: replace the matched span with [REDACTED] in place. Used for
+#   personal handles, project names, platform names where the surrounding
+#   sentence still carries useful meaning.
+# - HARD sentence-drop tokens: drop the whole sentence if matched. Used for
+#   tokens whose context is inseparable from the personal scope (specific
+#   URLs, env var names that imply infrastructure).
+# - HARD_DROP_PATTERNS (separate above): drop the whole memory if matched.
+
+SOFT_REDACT_TOKENS = [
+    # Personal name (in-context Oskar references are fine in a Muninn snapshot,
+    # but blanking keeps prose neutral)
+    "Oskar's", "Oskar",
+    # Personal sites (token-blank — sentence content might still be useful)
     "oaustegard.github.io",
     "muninn.austegard.com", "austegard.com", "aeyu.io",
-    "yepgent", "yepgent.com",
-    # Bluesky / Strava
+    "yepgent.com", "yepgent",
+    # Muninn-internal compound references
+    "Muninn-utilities", "Muninn-utils", "muninn-utilities", "muninn-utils",
+    "muninns-inbox", "Muninns-inbox",
+    # Personal repos / tools
+    "claude-workspace", "ccotw", "CCotw",
+    # Personal projects
+    "aeyu",
+]
+SOFT_REDACT_PATTERNS = [
+    (re.compile(re.escape(t)), "[REDACTED]") for t in SOFT_REDACT_TOKENS
+]
+# Word-boundary variants for ambiguous short tokens
+SOFT_REDACT_PATTERNS.extend([
+    (re.compile(r"\bOskar\b"), "[REDACTED]"),
+    (re.compile(r"\bMuninn-\w+"), "Muninn"),  # Muninn-architecture → Muninn
+    (re.compile(r"\boaustegard/[\w.-]+"), "[REDACTED]"),
+])
+
+# ─── Hard sentence-drop tokens ──────────────────────────────────────────────
+# Sentences containing these get stripped entirely. More aggressive than soft
+# (whole sentence gone) but less aggressive than HARD_DROP (whole memory gone).
+HARD_SENTENCE_DROP_TOKENS = [
+    # Bluesky / Strava channel mentions — sentence-level content usually
+    # entangled with channel operations
     "bsky.social", "api.bsky.chat", "bsky.app",
     " bsky ", " bsky.", " bsky,", " bsky\n",
     "Bluesky", "bluesky",
     "Strava", "strava",
-    # Norway scope (case-sensitive so we don't catch e.g. "norm" or unrelated)
+    # Norway scope
     " Norway", " Norwegian", "norway-", "norwegian-",
-    # Personal repos / handles
-    "oaustegard/", "ccotw", "CCotw",
-    "claude-workspace", "muninn-utilities", "muninns-inbox",
-    "muninn.austegard", "perch publication", "perch publish",
     # Sub-agent infra
     "Cloudflare", "cloudflare gateway", "CF gateway", "invoke_gemini",
     "Gemini 3", "Gemini Flash", "gemini-3", "gemini-flash",
     "Antigravity", "antigravity-cli",
     "Turso", "turso", "libsql",
-    # Personal env
+    # Personal env / channel-specific terminology
     "/mnt/project/", "MUNINN_BSKY", "GH_TOKEN", "TURSO_TOKEN",
     "STRAVA_CLIENT", "CF_ACCOUNT", "CF_API_TOKEN",
-    # Personal projects in technical content
-    "aeyu ", "Aeyu ",
+    # Perch/fly mechanics
+    "perch publication", "perch publish",
 ]
-REDACT_TOKEN_PATTERNS = [re.compile(re.escape(t)) for t in REDACT_TOKENS]
+HARD_SENTENCE_DROP_PATTERNS = [re.compile(re.escape(t)) for t in HARD_SENTENCE_DROP_TOKENS]
 
-# Plus word-boundary patterns that escape() can't express:
-REDACT_TOKEN_PATTERNS.extend([
-    re.compile(r"\bOskar\b"),
-    re.compile(r"\bMuninn-\w+"),         # Muninn-architecture, Muninn-utilities
-    re.compile(r"\bMuninn's\b"),
-])
+# Backwards-compat aliases (filter.py still references these names)
+REDACT_TOKENS = SOFT_REDACT_TOKENS
+REDACT_TOKEN_PATTERNS = HARD_SENTENCE_DROP_PATTERNS
 
 # Lines that should be dropped wholesale if they contain Turso-storage idioms.
 LINE_DROP_PATTERNS = [
@@ -416,7 +462,9 @@ LINE_DROP_PATTERNS = [
 
 # Memories whose body, after redaction, has fewer non-empty lines than this
 # get dropped. They've been gutted.
-MIN_LINES_AFTER_REDACT = 3
+# Set low (1) so partial-content memories still ship; bulk matters for the
+# destination's RAG threshold.
+MIN_LINES_AFTER_REDACT = 1
 
 # ─── Project instruction header ─────────────────────────────────────────────
 

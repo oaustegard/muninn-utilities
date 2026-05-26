@@ -1,25 +1,14 @@
 ---
 tag: token-discipline
-memory_count: 3
-date_range: 2026-02-01 to 2026-05-11
+memory_count: 2
+date_range: 2026-02-01 to 2026-03-04
 ---
 
 # token-discipline
 
-_3 memories from Muninn's past, primary tag `token-discipline`._
+_2 memories from Muninn's past, primary tag `token-discipline`._
 
-## 2026-05-11 — decision (ef0c2a76)
-_tags: preference, correction, github-procedures, pr-workflow, 2026-05-10_
-
-→ For multi-issue planning tasks: file issues directly in dependency order, edit them if scope changes during the conversation. Don't draft issue contracts in chat prose then re-render them as issue bodies — that's writing the same content twice.
-
-Detail belongs in the issue, not the chat.
-
-That's the signal to skip to creation.
-
----
-
-## 2026-03-04 — procedure (064d6bd2)
+## 2026-03-04 — procedure (p1) `064d6bd2`
 _tags: file-cache, analysis-workflow, edgartools, api-efficiency_
 
 FILE CACHE PATTERN FOR DATA-HEAVY ANALYSIS
@@ -40,6 +29,7 @@ PATTERN:
 
 WHY:
 - Re-fetching burns tokens AND latency for data that doesn't change mid-session
+- [REDACTED] can be shown the file directly (present_files) without re-running
 - Iterative analysis (different views of same data) costs nothing after first fetch
 - Failures mid-analysis don't require re-fetching from scratch
 
@@ -50,7 +40,7 @@ APPLIES TO: edgartools, FRED, Alpha Vantage, any API or scrape result
 
 ---
 
-## 2026-02-01 — world (ef9d097f)
+## 2026-02-01 — world (p1) `ef9d097f`
 _tags: fasthtml, preact, tools, web-generation_
 
 FASTHTML + PREACT FOR WEB GENERATION:

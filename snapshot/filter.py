@@ -13,7 +13,8 @@ import re
 from .config import (
     TAG_EXCLUDE,
     TAG_EXCLUDE_PATTERNS,
-    REDACT_TOKEN_PATTERNS,
+    SOFT_REDACT_PATTERNS,
+    HARD_SENTENCE_DROP_PATTERNS,
     LINE_DROP_PATTERNS,
     HARD_DROP_PATTERNS,
     MIN_LINES_AFTER_REDACT,
@@ -70,27 +71,37 @@ def _line_should_drop(line: str) -> bool:
 
 
 def _sentence_should_drop(sentence: str) -> bool:
-    """True if the sentence contains a personal-scope token."""
-    for pat in REDACT_TOKEN_PATTERNS:
+    """True if the sentence contains a HARD sentence-drop token."""
+    for pat in HARD_SENTENCE_DROP_PATTERNS:
         if pat.search(sentence):
             return True
     return False
 
 
-def redact_body(text: str) -> str:
-    """Sweep `text` for personal-scope tokens.
+def _apply_soft_redactions(text: str) -> str:
+    """Token-level: replace soft tokens in place (keeps surrounding sentence)."""
+    for pat, replacement in SOFT_REDACT_PATTERNS:
+        text = pat.sub(replacement, text)
+    return text
 
-    Strategy:
-    - Walk line by line. Drop lines matching LINE_DROP_PATTERNS outright.
-    - For each remaining line, split into sentences; drop sentences hitting
-      REDACT_TOKEN_PATTERNS; rejoin.
-    - Drop lines that become empty after sentence pruning.
+
+def redact_body(text: str) -> str:
+    """Two-stage sweep:
+    1. Token-blank soft personal references (Oskar, muninn-utilities, etc.)
+       — the surrounding sentence keeps its substantive content.
+    2. Sentence-drop hard channel/infra references (Bluesky, Strava, Turso,
+       Cloudflare, Norway scope) — surrounding context entangled.
+    3. Line-drop Turso-storage idioms (`recall(...)`, `remember(...)`).
 
     Returns the redacted text.
     """
     if not text:
         return text
 
+    # Stage 1: in-place soft redactions on the whole text
+    text = _apply_soft_redactions(text)
+
+    # Stage 2 + 3: line-by-line walk for hard drops
     out_lines: list[str] = []
     for line in text.splitlines():
         if _line_should_drop(line):
@@ -106,11 +117,9 @@ def redact_body(text: str) -> str:
         if not kept_sentences:
             continue
 
-        # Preserve leading whitespace from the original line
         leading_ws = line[: len(line) - len(line.lstrip())]
         out_lines.append(leading_ws + " ".join(kept_sentences))
 
-    # Collapse runs of 3+ blank lines
     result = "\n".join(out_lines)
     result = re.sub(r"\n{3,}", "\n\n", result)
     return result.strip()
