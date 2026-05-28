@@ -182,16 +182,37 @@ def index_diff(manifest_dir: str, module_dir: str) -> dict:
     }
 
 
+_VERSIONED_MANIFEST_RE = re.compile(r"\.v(\d+)\.(\d+)\.json$")
+
+
 def _find_manifest_file(sub: str) -> Optional[str]:
-    """Return path to the first `.v0.3.json` (or any `.json`) inside `sub`."""
+    """Return path to the newest-version `.vX.Y.json` (or any `.json`) inside `sub`.
+
+    When both `muninn-foo.v0.3.json` and `muninn-foo.v0.4.json` exist, the
+    audit must pick the newer one — v0.3 files are kept on disk for tooling
+    pinned to that version but no longer represent the canonical install
+    surface. Versions are compared as (major, minor) integer tuples; the
+    largest wins. Unversioned `.json` files are only considered when no
+    versioned file exists.
+    """
     if not os.path.isdir(sub):
         return None
-    candidates = [f for f in os.listdir(sub) if f.endswith(".v0.3.json")]
-    if not candidates:
-        candidates = [f for f in os.listdir(sub) if f.endswith(".json")]
-    if not candidates:
-        return None
-    return os.path.join(sub, sorted(candidates)[0])
+    versioned: list[tuple[tuple[int, int], str]] = []
+    unversioned: list[str] = []
+    for f in os.listdir(sub):
+        if not f.endswith(".json"):
+            continue
+        m = _VERSIONED_MANIFEST_RE.search(f)
+        if m:
+            versioned.append(((int(m.group(1)), int(m.group(2))), f))
+        else:
+            unversioned.append(f)
+    if versioned:
+        versioned.sort(reverse=True)  # newest version first
+        return os.path.join(sub, versioned[0][1])
+    if unversioned:
+        return os.path.join(sub, sorted(unversioned)[0])
+    return None
 
 
 def _read_module_source(module_dir: str, stem: str) -> Optional[str]:
@@ -267,14 +288,11 @@ def audit(
                     f"[{udir}] env used by source but not declared in manifest: "
                     f"{', '.join(drift['used_not_declared'])}"
                 )
-            # declared-not-used is informational; many manifests legitimately
-            # declare optional / fallback creds the source paths only sometimes
-            # touch. Surface as a separate, lower-volume warning class.
-            if drift["declared_not_used"]:
-                warnings.append(
-                    f"[{udir}] env declared but not referenced in source: "
-                    f"{', '.join(drift['declared_not_used'])}"
-                )
+            # `declared_not_used` is informational and retained on `record["drift"]`
+            # for callers that want it, but no longer surfaces as a warning. The
+            # `indirect: true` env extension that previously suppressed it has been
+            # dropped because the install-manifest v0.4 schema rejects extension
+            # fields on env[] entries.
 
         by_utility[udir] = record
 
