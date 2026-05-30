@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Build .well-known/tools.json — an agent-discoverable index of Muninn's
-install-manifest v0.3 surface.
+install-manifest surface.
 
 Walks manifests/*/*.json, reads each manifest, and emits a JSON document
-shaped per muninn-tools-index/v1:
+shaped per muninn-tools-index/v1. When several manifest versions of the same
+tool coexist on disk (e.g. v0.3 kept for version-pinned installs alongside the
+current v0.4), the index surfaces only the latest:
 
     {
       "schema_version": "muninn-tools-index/v1",
@@ -41,6 +43,16 @@ RAW_BASE = (
 
 def _manifest_url(rel: Path) -> str:
     return f"{RAW_BASE}/{rel.as_posix()}"
+
+
+def _version_key(manifest_version: str) -> tuple[int, ...]:
+    """Sortable key for a dotted manifest_version like '0.4' or '0.10'."""
+    try:
+        return tuple(int(part) for part in str(manifest_version).split("."))
+    except ValueError as exc:
+        raise ValueError(
+            f"unparseable manifest_version {manifest_version!r}: {exc}"
+        ) from exc
 
 
 def _entry(manifest_path: Path, repo_root: Path) -> dict:
@@ -89,18 +101,30 @@ def build_index(repo_root: Path) -> dict:
     if not manifests_dir.is_dir():
         raise FileNotFoundError(f"no manifests/ directory at {manifests_dir}")
 
-    entries: list[dict] = []
-    seen_ids: set[str] = set()
+    # One entry per tool.id, keeping the highest manifest_version. Multiple
+    # versions of a tool legitimately coexist on disk during a schema
+    # migration; the index lists only the current one. Two manifests sharing
+    # both tool.id AND manifest_version is a genuine collision and still
+    # aborts — that's the drift this index exists to detect.
+    best: dict[str, tuple[tuple[int, ...], Path, dict]] = {}
     for subdir in sorted(p for p in manifests_dir.iterdir() if p.is_dir()):
         for manifest_path in sorted(subdir.glob("*.json")):
             entry = _entry(manifest_path, repo_root)
-            if entry["id"] in seen_ids:
-                raise ValueError(
-                    f"{manifest_path}: duplicate tool.id {entry['id']!r}"
-                )
-            seen_ids.add(entry["id"])
-            entries.append(entry)
+            version = _version_key(entry["manifest_version"])
+            existing = best.get(entry["id"])
+            if existing is not None:
+                existing_version, existing_path, _ = existing
+                if version == existing_version:
+                    raise ValueError(
+                        f"{manifest_path}: duplicate tool.id {entry['id']!r} "
+                        f"at manifest_version {entry['manifest_version']!r} "
+                        f"(also defined in {existing_path})"
+                    )
+                if version < existing_version:
+                    continue
+            best[entry["id"]] = (version, manifest_path, entry)
 
+    entries = [entry for _, _, entry in best.values()]
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": dt.datetime.now(dt.timezone.utc).strftime(
