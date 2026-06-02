@@ -435,3 +435,67 @@ def create_post(record, auth):
         "url": bsky_url,
         "rkey": rkey
     }
+
+# ── Lightweight interactions ───────────────────────────────────────
+
+def like(subject_uri, subject_cid, auth):
+    """Like a Bluesky post — the lightest acknowledgment available.
+
+    Prefer a like over a reply when a reply would be unwelcome or add
+    nothing: an interlocutor who has signalled they'd rather not engage,
+    a thread that's already resolved, or a post you want to acknowledge
+    without demanding a further turn. A like asks nothing of the recipient.
+
+    `subject_uri` / `subject_cid` are the AT-URI and CID of the post being
+    liked (both are required by app.bsky.feed.like; the CID pins the exact
+    version). Returns the like record's own uri/cid/rkey — pass the uri to
+    `unlike` to reverse it.
+    """
+    data = json.dumps({
+        "repo": auth["did"],
+        "collection": "app.bsky.feed.like",
+        "record": {
+            "$type": "app.bsky.feed.like",
+            "subject": {"uri": subject_uri, "cid": subject_cid},
+            "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://bsky.social/xrpc/com.atproto.repo.createRecord",
+        data=data, method="POST",
+        headers={
+            "Authorization": f"Bearer {auth['access_jwt']}",
+            "Content-Type": "application/json",
+        },
+    )
+    result = json.loads(urllib.request.urlopen(req).read())
+
+    like_uri = result["uri"]
+    print(f"  \u2665 Liked: {subject_uri}")
+    return {
+        "uri": like_uri,
+        "cid": result["cid"],
+        "rkey": like_uri.split("/")[-1],
+    }
+
+
+def unlike(like_uri, auth):
+    """Remove a like by deleting its record. `like_uri` is from `like()`."""
+    data = json.dumps({
+        "repo": auth["did"],
+        "collection": "app.bsky.feed.like",
+        "rkey": like_uri.split("/")[-1],
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://bsky.social/xrpc/com.atproto.repo.deleteRecord",
+        data=data, method="POST",
+        headers={
+            "Authorization": f"Bearer {auth['access_jwt']}",
+            "Content-Type": "application/json",
+        },
+    )
+    urllib.request.urlopen(req).read()
+    print(f"  \u2661 Unliked: {like_uri}")
+    return {"deleted": like_uri}
