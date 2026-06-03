@@ -14,9 +14,9 @@ Unreacted logs older than NAG_DAYS → nag Oskar to triage.
 import urllib.request, json, os
 from datetime import datetime, timezone, timedelta
 
-CATEGORY_ID = "DIC_kwDOQEB8Es4C31s9"  # Flight Logs
+CATEGORY_ID = "DIC_kwDORr5Vj84C5A3Z"  # Flight Log (oaustegard/muninn.austegard.com)
 OWNER = "oaustegard"
-REPO = "claude-skills"
+REPO = "muninn.austegard.com"
 NAG_DAYS = 3
 
 # Reaction → action type
@@ -73,9 +73,9 @@ def _close_discussion(node_id, comment=None):
 def fetch_open_logs(limit=25):
     """Fetch open flight logs with reactions and comments."""
     data = _gh_graphql(
-        """query($owner: String!, $repo: String!, $limit: Int!) {
+        """query($owner: String!, $repo: String!, $categoryId: ID!, $limit: Int!) {
             repository(owner: $owner, name: $repo) {
-                discussions(first: $limit, categoryId: "DIC_kwDOQEB8Es4C31s9",
+                discussions(first: $limit, categoryId: $categoryId,
                             orderBy: {field: UPDATED_AT, direction: DESC}) {
                     nodes {
                         id number title closed createdAt updatedAt
@@ -91,7 +91,7 @@ def fetch_open_logs(limit=25):
                 }
             }
         }""",
-        {"owner": OWNER, "repo": REPO, "limit": limit},
+        {"owner": OWNER, "repo": REPO, "categoryId": CATEGORY_ID, "limit": limit},
     )
     logs = []
     for d in data["repository"]["discussions"]["nodes"]:

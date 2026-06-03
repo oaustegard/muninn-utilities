@@ -250,6 +250,10 @@ def publish_flight_log(number, repo=REPO):
     """Publish flight log #number to muninn.austegard.com/perch/. Returns {url, slug, commit_sha}."""
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
 
+    # Source discussion lives in the repo we publish from (default mac). Parse
+    # owner/name from the `repo` arg rather than hardcoding (#flight-log-migration).
+    _owner, _name = repo.split("/", 1)
+
     # Fetch discussion
     data = json.loads(urllib.request.urlopen(urllib.request.Request(
         "https://api.github.com/graphql",
@@ -257,7 +261,7 @@ def publish_flight_log(number, repo=REPO):
             repository(owner: $owner, name: $repo) {
                 discussion(number: $number) { id title body createdAt url }
             }
-        }""", "variables": {"owner": "oaustegard", "repo": "claude-skills", "number": number}}).encode(),
+        }""", "variables": {"owner": _owner, "repo": _name, "number": number}}).encode(),
         headers={"Authorization": f"bearer {token}", "Content-Type": "application/json"},
     )).read())
 

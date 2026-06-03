@@ -933,8 +933,8 @@ def _load_recent_flights(n: int = 5) -> list:
             return []
 
         query = '''query($limit: Int!) {
-  repository(owner: "oaustegard", name: "claude-skills") {
-    discussions(first: $limit, categoryId: "DIC_kwDOQEB8Es4C31s9",
+  repository(owner: "oaustegard", name: "muninn.austegard.com") {
+    discussions(first: $limit, categoryId: "DIC_kwDORr5Vj84C5A3Z",
                 orderBy: {field: CREATED_AT, direction: DESC}) {
       nodes { number title createdAt closed }
     }
