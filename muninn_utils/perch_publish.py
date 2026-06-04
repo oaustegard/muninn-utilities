@@ -5,7 +5,8 @@ Converts GitHub discussion markdown to HTML, pushes to GitHub Pages,
 updates index and Atom feed.
 
 Usage:
-    from perch_publish import publish_flight_log
+    from perch_publish import create_flight_log, publish_flight_log
+    disc = create_flight_log(title, body)   # -> {number, url, id}; always lands in mac
     result = publish_flight_log(430)
     # → {"url": "https://muninn.austegard.com/perch/...", "slug": "...", "commit_sha": "..."}
 """
@@ -20,6 +21,12 @@ from datetime import datetime, timezone
 
 REPO = "oaustegard/muninn.austegard.com"
 SITE_BASE = "https://muninn.austegard.com"
+
+# Flight-log discussion target — HARD-PINNED to the mac repo. claude-skills is the
+# RETIRED flight-log home; creating discussions there is the recurring repo-
+# misrouting bug (memory 58675f4c, confirmed 2026-06-04). Do not parameterize.
+FLIGHT_LOG_REPO_ID = "R_kgDORr5Vjw"          # oaustegard/muninn.austegard.com
+FLIGHT_LOG_CATEGORY_ID = "DIC_kwDORr5Vj84C5A3Z"  # mac "Flight Log" category
 
 PERCH_TEMPLATE = '''<!DOCTYPE html>
 <html lang="en">
@@ -244,6 +251,39 @@ def _extract_description(body):
             p = p[:197].rstrip() + '...'
         return p
     return ''
+
+
+def create_flight_log(title, body):
+    """Create a fly flight-log Discussion in oaustegard/muninn.austegard.com.
+
+    The ONE supported path for creating a fly discussion. Hard-pinned to the mac
+    repo + Flight Log category via the module constants. Do NOT hand-roll a
+    createDiscussion mutation against another repo — claude-skills is the retired
+    flight-log home and posting there is the repo-misrouting bug this exists to kill.
+
+    Returns {"number": int, "url": str, "id": str}.
+    """
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("GH_TOKEN/GITHUB_TOKEN not set")
+    mutation = """mutation($repoId: ID!, $categoryId: ID!, $title: String!, $body: String!) {
+      createDiscussion(input: {repositoryId: $repoId, categoryId: $categoryId, title: $title, body: $body}) {
+        discussion { number url id }
+      }
+    }"""
+    payload = {"query": mutation, "variables": {
+        "repoId": FLIGHT_LOG_REPO_ID, "categoryId": FLIGHT_LOG_CATEGORY_ID,
+        "title": title, "body": body}}
+    resp = json.loads(urllib.request.urlopen(urllib.request.Request(
+        "https://api.github.com/graphql",
+        data=json.dumps(payload).encode(),
+        headers={"Authorization": f"bearer {token}", "Content-Type": "application/json",
+                 "User-Agent": "muninn-raven"},
+    )).read())
+    if resp.get("errors"):
+        raise RuntimeError(f"createDiscussion failed: {resp['errors']}")
+    disc = resp["data"]["createDiscussion"]["discussion"]
+    return {"number": disc["number"], "url": disc["url"], "id": disc["id"]}
 
 
 def publish_flight_log(number, repo=REPO):
