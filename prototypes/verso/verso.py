@@ -286,15 +286,82 @@ def verify_file(path: str, json_out: bool = False) -> int:
     return 0 if all(r.status == 'pass' for _, r in results) else 1
 
 
+def _watch_snapshot(spec_path: str) -> dict:
+    """mtimes of the spec file plus every .py under its directory tree.
+    Editing the spec OR any source it might reference re-triggers a run."""
+    snap = {}
+    try:
+        snap[spec_path] = os.path.getmtime(spec_path)
+    except OSError:
+        pass
+    root = os.path.dirname(os.path.abspath(spec_path)) or '.'
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in ('__pycache__', '.git')
+                       and not d.startswith('.')]
+        for fn in filenames:
+            if fn.endswith('.py'):
+                p = os.path.join(dirpath, fn)
+                try:
+                    snap[p] = os.path.getmtime(p)
+                except OSError:
+                    pass
+    return snap
+
+
+def watch(path: str, interval: float = 0.5) -> int:
+    """Re-verify on change. Each run is a fresh subprocess so signature claims
+    pick up edited code (no stale sys.modules cache). Forces nothing — this is
+    an inner-loop convenience; the forcing function is a CI/publish gate."""
+    import subprocess
+    import time
+
+    def run_once():
+        ts = time.strftime('%H:%M:%S')
+        proc = subprocess.run([sys.executable, os.path.abspath(__file__), path],
+                              capture_output=True, text=True)
+        sys.stdout.write('\033[2J\033[H' if sys.stdout.isatty() else '\n' + '─' * 60 + '\n')
+        print(proc.stdout, end='')
+        if proc.stderr:
+            print(proc.stderr, end='', file=sys.stderr)
+        green = proc.returncode == 0
+        if sys.stdout.isatty():
+            banner = ('\033[42;30m GREEN \033[0m all claims pass' if green
+                      else '\033[41;37m RED \033[0m claims failing')
+        else:
+            banner = 'GREEN — all claims pass' if green else 'RED — claims failing'
+        print(f'\n[{ts}] {banner}   (watching; ctrl-c to stop)')
+        return proc.returncode
+
+    print(f'verso --watch {path}  (re-runs on save)')
+    last_rc = run_once()
+    snap = _watch_snapshot(path)
+    try:
+        while True:
+            time.sleep(interval)
+            cur = _watch_snapshot(path)
+            if cur != snap:
+                snap = cur
+                last_rc = run_once()
+    except KeyboardInterrupt:
+        print('\nstopped.')
+    return last_rc
+
+
 def main():
     args = sys.argv[1:]
     json_out = False
+    watch_mode = False
     if '--json' in args:
         json_out = True
         args.remove('--json')
+    if '--watch' in args:
+        watch_mode = True
+        args.remove('--watch')
     if len(args) != 1:
-        print('usage: verso.py [--json] path/to/file.md', file=sys.stderr)
+        print('usage: verso.py [--json] [--watch] path/to/file.md', file=sys.stderr)
         return 2
+    if watch_mode:
+        return watch(args[0])
     return verify_file(args[0], json_out=json_out)
 
 
