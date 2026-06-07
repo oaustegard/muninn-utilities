@@ -33,16 +33,16 @@ The CLI entry point reads `sys.argv` and dispatches. <!-- claim: signature targe
 
 ## Resolvers it ships with
 
-GitHub PR state — open, closed, merged. <!-- claim: signature target=verso.resolve_pr_state has-params=args -->
-
-GitHub issue state — open, closed. <!-- claim: signature target=verso.resolve_issue_state has-params=args -->
-
 Python callable signature — does the named function accept the listed
 parameters? <!-- claim: signature target=verso.resolve_signature has-params=args -->
 
 Command output — run a subprocess and assert exit code or stdout substring.
 This resolver replaced v1's `eval` resolver, which was arbitrary-code-
 execution on attacker-controlled markdown. <!-- claim: signature target=verso.resolve_command_output has-params=args -->
+
+Both check invariants. An earlier version also had `resolve_pr_state` and
+`resolve_issue_state`; they were removed because a PR or issue's state is
+*expected* to change, so it isn't an invariant to verify.
 
 ## Self-test via command-output
 
