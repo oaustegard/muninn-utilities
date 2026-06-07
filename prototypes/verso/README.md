@@ -51,6 +51,7 @@ a different mechanism, noted under next steps.
 
 ```
 python3 verso.py demo.md
+python3 verso.py --watch demo.md   # re-verify on every save (inner-loop aid)
 ```
 
 The demo is self-referential: `demo.md` is the README *and* the test suite
@@ -102,10 +103,31 @@ signatures, command exit codes — not for state that is supposed to change.
   shared deployments.
 - `KV_RE` doesn't handle escaped quotes inside quoted values.
 
+## What forces a run
+
+A verifier only helps if it runs — otherwise the drift moves from "doc vs
+code" to "the verify-run vs reality." Unlike real Verso, where the check *is*
+compilation (Lean won't build if a proof breaks), markdown renders fine
+whether or not its claims pass. So nothing intrinsic forces a run; you bind
+verso to an event with its own enforcement, ranked by how hard it is to skip:
+
+1. **Required CI check on PRs** — strongest. A workflow runs `verso spec.md`;
+   branch protection makes it a required status. You cannot merge red. The
+   enforcement is structural, not disciplinary.
+2. **Claims as part of the pytest suite** — a `test_verso_claims` runs
+   `verso spec.md` and asserts exit 0, so verso runs whenever tests run and
+   inherits the same green-bar gate. Best fit when verso wraps a TDD loop.
+3. **Publish-time gate** — the publish flow runs verso and refuses to ship a
+   doc with failing claims. Binds verify to the irreversible action.
+4. **Pre-commit hook / `--watch` / boot-surfacing** — raise the probability,
+   don't force. Bypassable, local, or merely informational.
+
+`--watch` is in category 4: an inner-loop convenience, not a forcing function.
+
 ## High-leverage next steps
 
 - Pre-commit hook for ops/README files that make claims
-- `--watch` mode: re-verify on file change
+- A GitHub Action + `test_verso_claims` so claims gate merges (see "What forces a run")
 - Cross-claim references: catch drift between two claims that should agree
 - **Live transclusion** for mutable references (PR state, current versions):
   render the current value at read time instead of asserting a snapshot. This
