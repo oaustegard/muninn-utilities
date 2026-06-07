@@ -1,0 +1,76 @@
+# verify_claims.py — self-verifying README
+
+This document is the README *and* the test suite for `verify_claims.py`. Every prose
+claim about verify_claims.py carries an embedded check that verify_claims.py itself can run.
+The recursion is the point: a document whose claims are verified by the
+artifact it documents.
+
+Run:
+
+```
+python3 verify_claims.py demo.md
+```
+
+If verify_claims.py drifts from this README — a renamed function, a removed claim
+type, a broken CLI — this document stops verifying. The drift surfaces
+loudly instead of waiting to be noticed.
+
+## What verify_claims.py is
+
+A claim verifier for markdown. Prose makes claims via HTML comments; the
+verifier resolves each claim against live state and reports PASS, FAIL,
+STALE, or ERROR. Exit 0 if all pass, 1 otherwise.
+
+## Functions verify_claims.py defines
+
+The parser walks markdown, extracts claim comments, and returns `Claim`
+objects. <!-- claim: signature target=verify_claims.parse_claims has-params=text -->
+
+The driver opens a file, resolves every claim, and prints results.
+<!-- claim: signature target=verify_claims.verify_file has-params=path,json_out -->
+
+The CLI entry point reads `sys.argv` and dispatches. <!-- claim: signature target=verify_claims.main has-params= -->
+
+## Resolvers it ships with
+
+Python callable signature — does the named function accept the listed
+parameters? <!-- claim: signature target=verify_claims.resolve_signature has-params=args -->
+
+Command output — run a subprocess and assert exit code or stdout substring.
+This resolver replaced v1's `eval` resolver, which was arbitrary-code-
+execution on attacker-controlled markdown. <!-- claim: signature target=verify_claims.resolve_command_output has-params=args -->
+
+Both check invariants. An earlier version also had `resolve_pr_state` and
+`resolve_issue_state`; they were removed because a PR or issue's state is
+*expected* to change, so it isn't an invariant to verify.
+
+## Self-test via command-output
+
+verify_claims.py exits 0 on a fixture whose only claim passes:
+<!-- claim: command-output cmd='python3 verify_claims.py fixtures/all_pass.md' exit=0 -->
+
+verify_claims.py exits 1 on a fixture with a known-failing claim:
+<!-- claim: command-output cmd='python3 verify_claims.py fixtures/has_fail.md' exit=1 -->
+
+The CLI prints usage to stderr when called with no arguments:
+<!-- claim: command-output cmd='python3 verify_claims.py' exit=2 stderr-contains=usage -->
+
+## Drift demonstration
+
+v1 of verify_claims.py had a `resolve_eval` resolver. v2 removed it because eval()
+on markdown-controlled input was a critical RCE. If a stale document still
+claims `resolve_eval` exists, the verifier flags it as drift:
+
+<!-- claim: signature target=verify_claims.resolve_eval has-params=args -->
+
+That FAIL is intentional — it's the demonstration. Every other claim in
+this document should PASS. The expected outcome is exit code 1, with a
+summary like "10 pass, 1 stale".
+
+## What this demonstrates
+
+The Verso-DNS-RFC pattern at the smallest possible scale: a single document
+whose prose and the artifact it describes are bound together by a verifier
+that runs against both. Rename `parse_claims` → `extract_claims` and the
+documentation breaks loudly the next time anyone runs `python3 verify_claims.py
+demo.md`. There is no path where the README silently drifts.
