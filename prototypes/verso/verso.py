@@ -3,7 +3,8 @@ verso.py — Verso-inspired claim verifier for markdown documents.
 
 Embeds typed claims as HTML comments next to prose:
 
-    PR oaustegard/foo#42 is merged. <!-- claim: pr-state target=oaustegard/foo#42 expected=merged -->
+    parse_claims takes a `text` argument.
+    <!-- claim: signature target=verso.parse_claims has-params=text -->
 
 Each claim is resolved against live system state. Verdicts:
     PASS    claim matches reality
@@ -18,15 +19,19 @@ Run:
 Exit 0 if all PASS, 1 otherwise.
 
 Claim types in this prototype:
-    pr-state         GitHub PR open / closed / merged
-    issue-state      GitHub issue open / closed
     signature        Python callable has expected named parameters
     command-output   subprocess exit code and/or stdout substring
 
-NOTE: v1 had an `eval` resolver and a `memory-exists` resolver. Both were
-removed:
+Both encode INVARIANTS — things that should stay true. A FAIL means a real
+defect to fix, not the passage of time.
+
+NOTE: earlier versions had `pr-state` / `issue-state` (GitHub state) and an
+`eval` resolver. All removed:
+    pr-state / issue-state checked MUTABLE state — a PR going open→merged is
+        the PR working, not drift. The only way to clear such a FAIL is to edit
+        the claim to match reality, which is backwards from verification.
+        Mutable state wants live transclusion, not a frozen assertion.
     eval was arbitrary-code-execution on attacker-controlled markdown.
-    memory-exists was fragile and out of scope for the prototype.
 `command-output` replaces eval safely (no shell, no eval, just subprocess).
 """
 
@@ -36,8 +41,6 @@ import os
 import json
 import inspect
 import importlib
-import urllib.request
-import urllib.error
 from dataclasses import dataclass
 from typing import Callable
 
@@ -106,59 +109,12 @@ class Result:
 
 
 # ─── resolvers ────────────────────────────────────────────────────────────────
-
-def _gh_headers():
-    h = {'User-Agent': 'muninn-verso', 'Accept': 'application/vnd.github+json'}
-    if os.environ.get('GH_TOKEN'):
-        h['Authorization'] = f'Bearer {os.environ["GH_TOKEN"]}'
-    return h
-
-
-def _gh_get(url: str) -> tuple[dict | None, Result | None]:
-    try:
-        req = urllib.request.Request(url, headers=_gh_headers())
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read()), None
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None, Result('stale', detail=f'{url} → 404')
-        return None, Result('error', detail=f'HTTP {e.code}: {e.reason}')
-    except Exception as e:
-        return None, Result('error', detail=f'{type(e).__name__}: {e}')
-
-
-def resolve_pr_state(args: dict) -> Result:
-    target = args.get('target', '')
-    expected = args.get('expected', '').lower()
-    m = re.match(r'([\w.-]+)/([\w.-]+)#(\d+)$', target)
-    if not m:
-        return Result('error', detail=f'bad target {target!r}; want owner/repo#N')
-    owner, repo, num = m.groups()
-    data, err = _gh_get(f'https://api.github.com/repos/{owner}/{repo}/pulls/{num}')
-    if err:
-        return err
-    actual = 'merged' if data.get('merged') else data.get('state', '?')
-    status = 'pass' if actual == expected else 'fail'
-    return Result(status, expected=expected, actual=actual)
-
-
-def resolve_issue_state(args: dict) -> Result:
-    target = args.get('target', '')
-    expected = args.get('expected', '').lower()
-    m = re.match(r'([\w.-]+)/([\w.-]+)#(\d+)$', target)
-    if not m:
-        return Result('error', detail=f'bad target {target!r}; want owner/repo#N')
-    owner, repo, num = m.groups()
-    data, err = _gh_get(f'https://api.github.com/repos/{owner}/{repo}/issues/{num}')
-    if err:
-        return err
-    # GitHub issues API returns PRs too; filter
-    if 'pull_request' in data:
-        return Result('error', detail=f'{target} is a PR, use pr-state')
-    actual = data.get('state', '?')
-    status = 'pass' if actual == expected else 'fail'
-    return Result(status, expected=expected, actual=actual)
-
+#
+# Every claim type here encodes an INVARIANT — something that should stay true,
+# so that a FAIL means a real defect to fix. Mutable-state checks (a PR's state,
+# an issue's state) were removed: a snapshot that is *expected* to change is not
+# an invariant, and "fixing" its FAIL means editing the claim to chase reality,
+# which is backwards. See README "Why no pr-state / issue-state".
 
 def resolve_signature(args: dict) -> Result:
     target = args.get('target', '')
@@ -271,8 +227,6 @@ def resolve_command_output(args: dict) -> Result:
 
 
 RESOLVERS: dict[str, Callable[[dict], Result]] = {
-    'pr-state':        resolve_pr_state,
-    'issue-state':     resolve_issue_state,
     'signature':       resolve_signature,
     'command-output':  resolve_command_output,
 }
