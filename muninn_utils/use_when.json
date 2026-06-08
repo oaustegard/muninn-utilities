@@ -9,6 +9,7 @@
   "perch_triage": "Dream review, morning check-in, or any flight log processing.",
   "remind": "Oskar says \"remind me\", \"don't let me forget\", scheduling future reminders, checking/managing existing reminders.",
   "verify_patch": "PR creation, code review, verifying handoff specs, any time a diff needs vetting",
-  "whtwnd": "publishing blog posts to WhiteWind \u2014 whtwnd_auth(); whtwnd_post(content, title, auth=); whtwnd_update(rkey, content, title, auth=); whtwnd_delete(rkey, auth=); whtwnd_list(auth=); whtwnd_upload_image(path, auth=)",
-  "zeitgeist_delta": "Running a zeitgeist and about to store the result. Prevents near-identical coverage of running stories (Iran/Hormuz, Norway F-16s) from bloating memory."
+  "whtwnd": "publishing blog posts to WhiteWind — whtwnd_auth(); whtwnd_post(content, title, auth=); whtwnd_update(rkey, content, title, auth=); whtwnd_delete(rkey, auth=); whtwnd_list(auth=); whtwnd_upload_image(path, auth=)",
+  "zeitgeist_delta": "Running a zeitgeist and about to store the result. Prevents near-identical coverage of running stories (Iran/Hormuz, Norway F-16s) from bloating memory.",
+  "recall_sufficiency": "Iterative recall that keeps searching until the answer is sufficient: recall -> judge coverage -> name the gap and re-search for it -> repeat. For autonomous/programmatic runs or cross-corpus retrieval where bailing at 'not found' is wrong; on a single rich KB plain recall() plus judgement is lighter."
 }
