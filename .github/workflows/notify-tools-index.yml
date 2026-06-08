@@ -5,9 +5,12 @@ name: Notify tools.json sync
 # .well-known/tools.json promptly. The daily schedule there is the backstop;
 # this is the prompt-sync path.
 #
-# Requires the secret MUNINN_SITE_DISPATCH_PAT — a classic PAT with `repo`
-# scope on oaustegard/muninn.austegard.com. If the secret is absent the step
-# fails loudly (intentional: silent failure here would defeat the purpose).
+# Uses the secret MUNINN_SITE_DISPATCH_PAT — a classic PAT with `repo`
+# scope on oaustegard/muninn.austegard.com. If the secret is ABSENT the step
+# warns and skips (the site repo's daily scheduled rebuild is the backstop —
+# only prompt-sync latency is lost). If the secret is PRESENT but the dispatch
+# fails (expired/under-scoped PAT, API error), the step fails loudly — a
+# silently-broken sync is the failure mode worth catching.
 on:
   push:
     branches: ["main"]
@@ -26,9 +29,10 @@ jobs:
           PAT: ${{ secrets.MUNINN_SITE_DISPATCH_PAT }}
         run: |
           if [ -z "$PAT" ]; then
-            echo "MUNINN_SITE_DISPATCH_PAT secret is not set." >&2
-            echo "Configure it with 'repo' scope on oaustegard/muninn.austegard.com." >&2
-            exit 1
+            echo "::warning::MUNINN_SITE_DISPATCH_PAT not set — skipping prompt-sync dispatch." >&2
+            echo "The site repo's daily scheduled rebuild remains the backstop." >&2
+            echo "To enable prompt sync, add a 'repo'-scoped classic PAT as MUNINN_SITE_DISPATCH_PAT." >&2
+            exit 0
           fi
           curl -sS -f -X POST \
             -H "User-Agent: muninn-utilities-ci" \
