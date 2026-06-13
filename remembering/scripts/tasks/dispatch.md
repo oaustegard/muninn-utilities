@@ -15,6 +15,14 @@ policy = load('dispatch')
 
 If `policy['instructions']` or `policy['preferences']` contain routing guidance (e.g., "prefer sleep on weekends", "blackout fly during conference week"), apply it. Otherwise use the default criteria below.
 
+### Phase 0.5: Job scan (ALWAYS — before routing)
+
+Run the jobsearch scan every session, regardless of which task you route to next. It's cheap (poll + diff + one digest), so it doesn't consume the explore budget — it just has to happen daily. Execute the procedure in `tasks/jobsearch.md`: load the career-search targets, poll the allowlisted ATS boards, diff against `_seen.json`, filter to senior AI/Data/VP/CTO, post the digest Discussion, persist `_seen.json`.
+
+**Graceful no-op:** if the three ATS domains aren't on the allowlist yet, or every target row is still `ats=TBD`, log a one-line skip (`remember`, tags `['session-log','jobsearch','jobsearch-skip']`) and continue to routing. Safe to ship before the prerequisites land.
+
+Then proceed:
+
 ### Steps
 
 1. `recall(tags=["perch-homework", "pending"], tag_mode="all", n=5)` — check for queued homework from Muninn
