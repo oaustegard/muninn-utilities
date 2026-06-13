@@ -41,6 +41,7 @@ Skip rows with `ats=TBD` (not yet verified) or `ats=other` (manual — no public
 `create_discussion` in `oaustegard/career-search`:
 - Title: `Job scan {YYYY-MM-DD} — {N} new roles`
 - Body: grouped by company, each new role as `[title](url)` + location + why-flagged. Zero new → one-line log.
+- **Baseline run:** if `_seen.json` was ABSENT (first ever run), do NOT list every posting as "new" — post a one-line `baseline established ({N} roles indexed)` digest and let Phase 5 persist the full id-set. Real new-role digests start on the second run.
 
 ### Phase 5: Persist
 - Overwrite `targets/_seen.json` with the full current posting-id set (`github_rw.commit_file`, branch=main).
