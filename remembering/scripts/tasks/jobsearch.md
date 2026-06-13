@@ -17,10 +17,18 @@ For each row with a real ats+slug, build the poll URL:
 - greenhouse: `https://boards-api.greenhouse.io/v1/boards/{slug}/jobs`
 - lever:      `https://api.lever.co/v0/postings/{slug}?mode=json`
 - ashby:      `https://api.ashbyhq.com/posting-api/job-board/{slug}`
-Skip rows with `ats=TBD` (not yet verified).
+- workday:    slug encodes `tenant:wdN:site` (e.g. `capitalone:wd12:Capital_One`); CXS endpoint is
+              `https://{tenant}.{wdN}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs` (POST — see Phase 2).
+Skip rows with `ats=TBD` (not yet verified) or `ats=other` (manual — no public JSON board).
 
 ### Phase 2: Poll + diff
 - Fetch each board (urllib). **These domains must be on the project allowlist or the fetch fails.**
+  - greenhouse / lever / ashby: simple GET; JSON list-or-dict of postings.
+  - workday: **POST** to the CXS URL, header `Content-Type: application/json`, body
+    `{"appliedFacets":{},"limit":20,"offset":0,"searchText":""}`. Response:
+    `{total, jobPostings:[{title, externalPath, locationsText, postedOn, bulletFields:[reqId]}]}`.
+    Paginate by 20 (`offset += 20` until `offset >= total`; CXS caps `limit` at 20).
+    Posting id = `externalPath` (stable, unique). Full URL = `https://{tenant}.{wdN}.myworkdayjobs.com/{site}{externalPath}`.
 - Load prior seen-set from `targets/_seen.json` in career-search (`{}` if absent).
 - New = posting ids not in the seen-set.
 
