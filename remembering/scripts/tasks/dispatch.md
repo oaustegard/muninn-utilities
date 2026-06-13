@@ -15,11 +15,20 @@ policy = load('dispatch')
 
 If `policy['instructions']` or `policy['preferences']` contain routing guidance (e.g., "prefer sleep on weekends", "blackout fly during conference week"), apply it. Otherwise use the default criteria below.
 
-### Phase 0.5: Job scan (ALWAYS — before routing)
+### Phase 0.5: Private daily tasks (ALWAYS — before routing)
 
-Run the jobsearch scan every session, regardless of which task you route to next. It's cheap (poll + diff + one digest), so it doesn't consume the explore budget — it just has to happen daily. Execute the procedure in `tasks/jobsearch.md`: load the career-search targets, poll the allowlisted ATS boards, diff against `_seen.json`, filter to senior AI/Data/VP/CTO, post the digest Discussion, persist `_seen.json`.
+Run any owner-private daily tasks before routing. These are cheap and must happen every session, so they don't consume the explore budget.
 
-**Graceful no-op:** if the three ATS domains aren't on the allowlist yet, or every target row is still `ats=TBD`, log a one-line skip (`remember`, tags `['session-log','jobsearch','jobsearch-skip']`) and continue to routing. Safe to ship before the prerequisites land.
+```python
+from muninn_utils.task_policy import load
+import json
+reg = load('dispatch').get('private_daily_tasks')  # or config_get('private-daily-tasks')
+for ptr in json.loads(reg or '[]'):
+    spec = github_rw.get_file(ptr['repo'], ptr['path'])[0]  # private repo; specs are not public
+    # execute the spec's procedure, then continue
+```
+
+**Graceful no-op:** if `private-daily-tasks` is absent/empty, or a spec's prerequisites aren't met, log a one-line skip (`remember`, tags `['session-log','perch-time']`) and continue to routing. The specs live in their own (private) repos; nothing about them belongs in this public file.
 
 Then proceed:
 
