@@ -2,6 +2,49 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.13.0] - 2026-06-20
+
+Tier-1 memory-hygiene follow-on from the memory-redundancy probe
+(`claude-workspace/experiments/memory-redundancy-probe/`). Three issues, one
+PR: stop the obvious write-side leaks before any embeddings work (#119).
+
+### Added
+
+- `remember()` gains `idempotency_window: int = 60`. On `sync=True` writes,
+  identical `(summary, type)` written within the window returns the prior id
+  instead of creating a duplicate row. Defaults catch double-call / retry-
+  without-idempotency. Pass `0` to disable. Async writes skip the probe
+  (in-flight prior writes aren't visible). Probe failure falls through to a
+  normal write. (#54)
+- `curate()` finally implements strategy 3 — `MemoryIndex.duplicates()` is
+  wired in, surfacing TF-IDF near-duplicate pairs via a new `duplicates` key
+  on the result and a recommendation line. Surface-only: duplicates are
+  **never** auto-deleted, even when `dry_run=False`. New kwargs
+  `dup_threshold=0.95` and `dup_limit=30`. (#54)
+- `prune_by_age()` gains an optional `tags: list = None` filter. Tagged
+  prune scopes deletion to memories whose tag list contains *all* of the
+  given tags (e.g. `tags=['session-log']` for the SLEEP/FLY logs).
+  Memories `strengthen()`ed past the priority floor are still excluded. (#56)
+
+### Changed
+
+- `sleep.md` Phase 1 now calls `curate(dry_run=True)` to review surfaced
+  near-duplicates and adds a `prune_by_age(... tags=['session-log'])` step
+  for the session-log accumulation flagged by the probe as the dominant
+  growth term (~10.6% of the store). (#56)
+- `zeitgeist.md` floor-skip branch no longer persists `"Skipped zeitgeist…"`
+  telemetry as a memory. The absence of a zeitgeist memory for the date
+  already records the skip; persisting it was polluting the store (14 active
+  skip memories, several at priority 1 typed as `decision`). Skip path
+  shrinks to a plain `return`. (#55)
+
+### Fixed
+
+- `curate()` docstring no longer advertises a no-op. Strategy 3 (duplicate
+  detection) had been listed since v5.1.0 but the code never ran it, so
+  every sleep-maintenance report claimed "No duplicates identified" while
+  exact duplicates sat in the store. (#54)
+
 ## [5.12.0] - 2026-05-14
 
 ### Added

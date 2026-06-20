@@ -20,9 +20,14 @@ Sleep runs whenever dispatched — no cadence skip. The `policy['last_run']` is 
 ### Phase 1: Pruning
 
 1. Search for memories tagged `pending-test` or with low confidence (<0.5). Review them and decide: keep, update, or delete.
-2. Look for duplicate or near-duplicate memories. Use `sql_query` to find memories with similar summaries if needed.
+2. Run `curate(dry_run=True)`. Review `result['duplicates']` (lexical near-dups at TF-IDF cosine ≥0.95) and `forget()` the redundant member of each obvious pair. Lexical-only — running-topic semantic dups in the zeitgeist family are NOT covered, by design (see memory `517a2f07`).
 3. Check for stale memories — old observations that are no longer relevant.
-4. Delete noise. Be decisive — but honor any "preserve aggressively" preferences from Phase 0.
+4. **Prune session-log scaffolding (issue #56).** The `SLEEP SESSION` / `FLY SESSION` `experience` logs are the dominant growth term (~10.6% of the store as of the memory-redundancy probe). Routine logs past 60 days at priority ≤0 add no recall value; promoted logs (priority ≥1) are preserved by the floor.
+   ```python
+   prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'], dry_run=False)
+   ```
+   For first-time runs against a store that has accumulated past 60 days, dry-run first and spot-check before applying.
+5. Delete noise. Be decisive — but honor any "preserve aggressively" preferences from Phase 0.
 
 ### Phase 2: Synthesis (growth)
 

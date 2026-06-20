@@ -31,18 +31,13 @@ days = days_since_last_run(policy)
 MIN_DAYS_BETWEEN_RUNS = 5  # weekly cadence with 2-day buffer
 
 if days is not None and days < MIN_DAYS_BETWEEN_RUNS:
-    from scripts import remember
-    from datetime import date
-    today = date.today().isoformat()
-    remember(
-        f"Skipped zeitgeist {today} — last was {days:.1f}d ago, floor is {MIN_DAYS_BETWEEN_RUNS}d.",
-        type='ops',
-        tags=['perch-time', 'zeitgeist-skip', today]
-    )
-    # EXIT THE TASK. Do not generate. Do not post. Do not store a zeitgeist memory.
-    # Genuine state-change events get captured in the next scheduled run; missing
-    # one day is not a real cost. The point of the floor is to break the daily
-    # treadmill, not to capture every breaking development.
+    # EXIT THE TASK. Do not generate. Do not post. Do not store anything.
+    # The absence of a zeitgeist memory for today already records the skip;
+    # persisting "Skipped zeitgeist…" telemetry pollutes the store (issue #55:
+    # 14 skip memories accumulated, several at priority 1 typed as decision).
+    # Genuine state-change events get captured in the next scheduled run;
+    # missing one day is not a real cost. The point of the floor is to break
+    # the daily treadmill, not to capture every breaking development.
     return
 ```
 
