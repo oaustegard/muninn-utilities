@@ -139,6 +139,7 @@ def remember(summary: str, type: str = None, *, tags: list = None, conf: float =
              sync: bool = True, session_id: str = None,
              alternatives: list = None,
              mem_type: str = None,
+             idempotency_window: int = 60,
              # Deprecated parameters (ignored in v2.0.0, kept for backward compat)
              entities: list = None, importance: float = None, memory_class: str = None) -> "MemoryWriteId":
     """Store a memory. Type is required. Returns memory ID.
@@ -165,6 +166,11 @@ def remember(summary: str, type: str = None, *, tags: list = None, conf: float =
             Each item should be a dict with 'option' and 'rejected' keys.
             Example: [{"option": "Redis", "rejected": "Too complex for our scale"}]
             Stored in refs as a typed object alongside memory ID references.
+        idempotency_window: Seconds to look back for a duplicate write with identical
+            (summary, type). If a match exists, return its id instead of writing again.
+            Default 60s catches double-call / retry-without-idempotency (#54). Pass 0 to
+            disable. Only active for sync=True writes — async writes skip the check, as
+            a prior in-flight write may not yet have landed.
 
     Deprecated args (v2.0.0 - ignored but accepted for backward compat):
         entities, importance, memory_class
@@ -192,6 +198,26 @@ def remember(summary: str, type: str = None, *, tags: list = None, conf: float =
         raise ValueError(f"Invalid type '{type}'. Must be one of: {', '.join(sorted(TYPES))}")
 
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+    # Write idempotency (#54): if the same (summary, type) was written in the
+    # idempotency window, return that id rather than creating a duplicate row.
+    # Only on sync writes — async writes can't see in-flight prior writes.
+    if sync and idempotency_window and idempotency_window > 0:
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.now(UTC) - timedelta(seconds=idempotency_window)
+                      ).isoformat().replace("+00:00", "Z")
+            existing = _exec(
+                "SELECT id FROM memories WHERE deleted_at IS NULL AND type = ? "
+                "AND summary = ? AND t >= ? ORDER BY t DESC LIMIT 1",
+                [type, summary, cutoff]
+            )
+            if existing:
+                return MemoryWriteId(existing[0]['id'])
+        except Exception:
+            # Idempotency check is best-effort; fall through to normal write.
+            pass
+
     mem_id = str(uuid.uuid4())
 
     if type == "decision" and conf is None:
@@ -1331,13 +1357,19 @@ def memory_histogram() -> dict:
 
 
 @accept_aliases
-def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = True) -> dict:
+def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = True,
+                 tags: list = None) -> dict:
     """Soft-delete old memories with priority at or below a threshold.
 
     Args:
         older_than_days: Delete memories older than this many days
         priority_floor: Only delete memories with priority <= this (default 0)
         dry_run: If True (default), return what would be deleted without deleting
+        tags: Optional tag filter — only prune memories whose tag list contains
+            ALL of the given tags. Use this to scope a prune to a specific family
+            (e.g. ['session-log']) without touching unrelated low-priority memories.
+            Memories that have been strengthen()ed past the floor are still excluded
+            by priority, so genuinely valuable session logs survive.
 
     Returns:
         Dict with count and list of memory IDs that were (or would be) deleted
@@ -1346,21 +1378,31 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
         >>> # See what would be deleted
         >>> result = prune_by_age(older_than_days=90, priority_floor=0)
         >>> print(f"Would delete {result['count']} memories")
-        >>> # Actually delete
-        >>> result = prune_by_age(older_than_days=90, priority_floor=0, dry_run=False)
+        >>> # Prune only session-log scaffolding past 60 days (#56)
+        >>> prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'],
+        ...              dry_run=False)
     """
     cutoff = datetime.now(UTC) - __import__('datetime').timedelta(days=older_than_days)
     cutoff_iso = cutoff.isoformat().replace("+00:00", "Z")
 
-    # Find candidates
-    results = _exec("""
-        SELECT id, summary, type, priority, created_at
-        FROM memories
-        WHERE deleted_at IS NULL
-          AND created_at < ?
-          AND priority <= ?
-          AND is_superseded = 0
-    """, [cutoff_iso, priority_floor])
+    conditions = [
+        "deleted_at IS NULL",
+        "created_at < ?",
+        "priority <= ?",
+        "is_superseded = 0",
+    ]
+    params = [cutoff_iso, priority_floor]
+
+    if tags:
+        for t in tags:
+            conditions.append("tags LIKE ? ESCAPE '\\'")
+            params.append(f'%"{_escape_like(t)}"%')
+
+    where = " AND ".join(conditions)
+    results = _exec(
+        f"SELECT id, summary, type, priority, created_at FROM memories WHERE {where}",
+        params
+    )
 
     ids = [m['id'] for m in results]
 
@@ -1369,11 +1411,14 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
         for memory_id in ids:
             forget(memory_id)
 
+    criteria = f"older_than={older_than_days}d, priority<={priority_floor}"
+    if tags:
+        criteria += f", tags⊇{tags}"
     return {
         "count": len(ids),
         "ids": ids,
         "dry_run": dry_run,
-        "criteria": f"older_than={older_than_days}d, priority<={priority_floor}"
+        "criteria": criteria,
     }
 
 
@@ -2047,15 +2092,20 @@ def consolidate(*, tags: list = None, min_cluster: int = 3, dry_run: bool = True
 # @lat: [[memory#Consolidation & Curation]]
 def curate(*, dry_run: bool = True, consolidation_threshold: int = 3,
            stale_days: int = 90, low_priority_cap: int = -1,
-           max_actions: int = 20) -> dict:
+           max_actions: int = 20, dup_threshold: float = 0.95,
+           dup_limit: int = 30) -> dict:
     """Autonomous memory curation: detect duplicates, stale memories, and consolidation opportunities.
 
     Implements three curation strategies as flexible guidelines:
     1. **Consolidation detection**: Groups of memories sharing tags that could be synthesized.
     2. **Stale memory identification**: Old, unaccessed memories below priority threshold.
-    3. **Duplicate detection**: Memories with high textual overlap.
+    3. **Duplicate detection**: TF-IDF lexical near-duplicate pairs (via MemoryIndex).
+       Surface only — never auto-delete on similarity. Lexical is reliable for *exact*
+       duplicates; running-topic semantic dups (e.g. zeitgeist family) need embeddings
+       and are intentionally undetected here (see memory `517a2f07`).
 
     When dry_run=False, applies actions: consolidates clusters and demotes stale memories.
+    Duplicates are always surface-only — never auto-acted, even when dry_run=False.
     When dry_run=True (default), returns analysis without modifications.
 
     Args:
@@ -2064,19 +2114,26 @@ def curate(*, dry_run: bool = True, consolidation_threshold: int = 3,
         stale_days: Days since last access to consider a memory stale (default 90).
         low_priority_cap: Max priority level for stale pruning candidates (default -1).
         max_actions: Maximum total actions to take per invocation (default 20).
+        dup_threshold: TF-IDF cosine threshold for duplicate detection (default 0.95;
+            high to bias for exact dups, since lexical is unreliable for semantic dups).
+        dup_limit: Max duplicate pairs to surface (default 30).
 
     Returns:
         Dict with:
             - consolidation: clusters found (same as consolidate(dry_run=True))
             - stale: list of stale memory summaries with IDs
+            - duplicates: list of near-duplicate pairs (id_a, id_b, score, previews)
             - actions_taken: number of actions applied (0 if dry_run)
             - recommendations: human-readable suggestions
 
     v5.1.0: Initial implementation (#295).
+    v5.13.0 (#54): Wired MemoryIndex.duplicates() in as strategy 3; the docstring
+        had advertised it since v5.1.0 but the code was a no-op.
     """
     result = {
         "consolidation": {"clusters": []},
         "stale": [],
+        "duplicates": [],
         "actions_taken": 0,
         "recommendations": []
     }
@@ -2132,7 +2189,30 @@ def curate(*, dry_run: bool = True, consolidation_threshold: int = 3,
     except Exception as e:
         result["recommendations"].append(f"Stale memory scan failed: {e}")
 
-    # 3. Apply actions if not dry_run
+    # 3. Duplicate detection (lexical TF-IDF). Surface only; never auto-act.
+    try:
+        # Local import to keep curate() usable when muninn_utils is absent
+        # (e.g. partial install) — the scan degrades gracefully in that case.
+        import os
+        import sys
+        util_dir = os.path.expanduser("~/muninn_utils")
+        if util_dir not in sys.path:
+            sys.path.insert(0, util_dir)
+        from muninn_utils.memory_tfidf import MemoryIndex
+
+        idx = MemoryIndex().build()
+        dups = idx.duplicates(threshold=dup_threshold, n=dup_limit)
+        result["duplicates"] = dups
+        if dups:
+            result["recommendations"].append(
+                f"Found {len(dups)} near-duplicate pairs at TF-IDF cosine >= {dup_threshold}. "
+                "Review and forget() the redundant member of each pair. "
+                "(Lexical only — running-topic semantic dups are NOT covered; see memory 517a2f07.)"
+            )
+    except Exception as e:
+        result["recommendations"].append(f"Duplicate scan failed: {e}")
+
+    # 4. Apply actions if not dry_run
     if not dry_run:
         # Auto-consolidate clusters
         if result["consolidation"]["clusters"] and actions_remaining > 0:
