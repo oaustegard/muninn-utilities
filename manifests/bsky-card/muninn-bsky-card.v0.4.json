@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "name": "Muninn Bluesky Card",
     "summary": "Compose and publish Bluesky posts with rich link-card embeds (Open Graph preview). Python module; app-password auth; reads arbitrary URLs to extract OG metadata, then posts via the authenticated PDS.",
-    "description": "Library that an orchestrating agent calls to share a URL on Bluesky with a proper link card. Workflow: fetch the target URL, extract Open Graph tags, upload the card thumbnail as a blob to the user's PDS, compose UTF-8 facets for any inline links, and create the post via com.atproto.repo.createRecord. Auth is a Bluesky app password (created at bsky.app/settings/app-passwords); the password grants write access to everything except DMs and account deletion. The tool itself stores nothing; ephemeral session JWTs live only in the calling process's memory. First in the consumer-test series for install-manifest-spec v0.3 \u2014 see the muninns-inbox discussion #1 thread for the findings the writeup surfaced. Manifest moved here (from muninns-inbox/manifests/) per issue #5 \u2014 the round-1 venue mistake. Auth is supplied by the caller as an `auth` dict (`handle`, `did`, `access_jwt`); this utility reads no BSKY_* env vars directly.",
+    "description": "Library that an orchestrating agent calls to share a URL on Bluesky with a proper link card. Workflow: fetch the target URL, extract Open Graph tags, upload the card thumbnail as a blob to the user's PDS, compose UTF-8 facets for any inline links, and create the post via com.atproto.repo.createRecord. Auth is a Bluesky app password (created at bsky.app/settings/app-passwords); the password grants write access to everything except DMs and account deletion. The tool itself stores nothing; ephemeral session JWTs live only in the calling process's memory. First in the consumer-test series for install-manifest-spec v0.3 \u2014 see the muninns-inbox discussion #1 thread for the findings the writeup surfaced. Manifest moved here (from muninns-inbox/manifests/) per issue #5 \u2014 the round-1 venue mistake. Two entry shapes: the library API takes a pre-resolved `auth` dict (`handle`, `did`, `access_jwt`) from the caller, while the `python -m muninn_utils.bsky_card` CLI entrypoint resolves a session from BSKY_HANDLE + BSKY_APP_PASSWORD (see env).",
     "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/bsky_card.py",
     "author": {
       "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
@@ -37,7 +37,32 @@
       ]
     }
   },
-  "env": [],
+  "env": [
+    {
+      "name": "BSKY_HANDLE",
+      "prompt": "The Bluesky handle the CLI authenticates as, e.g. 'austegard.com'. Required by the `python -m muninn_utils.bsky_card` entrypoint (whoami / post-link / delete-post). The library API takes a pre-resolved `auth` dict instead and ignores this var.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "obtain_url": "https://bsky.app/settings/account"
+    },
+    {
+      "name": "BSKY_APP_PASSWORD",
+      "prompt": "App password for BSKY_HANDLE. Format is four hyphen-separated four-character groups. Treat as a secret. Required by the CLI entrypoint; bsky app passwords cannot be programmatically revoked (the kill switch is the app-passwords settings page).",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$",
+      "obtain_url": "https://bsky.app/settings/app-passwords"
+    },
+    {
+      "name": "BSKY_PDS",
+      "prompt": "Optional PDS base URL override. Defaults to https://bsky.social. Set only when authenticating against a self-hosted or non-default PDS.",
+      "secret": false,
+      "required": false,
+      "validation_regex": "^https?://.+",
+      "obtain_url": "https://atproto.com/guides/self-hosting"
+    }
+  ],
   "scopes": [
     {
       "resource": "atproto.repo",

@@ -278,12 +278,15 @@ def _must_have_valid_record_inputs(**deps):
 
 # ── High-Level Composition (flowing graph) ─────────────────────────
 
-def _build_compose_graph(text, url, auth, og_tags=None):
+def _build_compose_graph(text, url, auth, og_tags=None, langs=None):
     """Construct the compose-pipeline tasks; return (record_node, fetch_og).
 
-    Tasks are closure-bound to (text, url, auth, og_tags). The caller
+    Tasks are closure-bound to (text, url, auth, og_tags, langs). The caller
     decides which terminal to drive — record_node alone (compose only)
     or post_node downstream (compose + post).
+
+    `langs`, when supplied, is a list of BCP-47 language tags written to the
+    record's `langs` field (app.bsky.feed.post). None omits the field.
     """
     # Strip `[displayed](url)` markdown so URLs in the source text move
     # into facets (zero graphemes) instead of being visible in record.text.
@@ -327,13 +330,16 @@ def _build_compose_graph(text, url, auth, og_tags=None):
         validate=_must_have_valid_record_inputs,
     )
     def record_node(embed_node, facets_node):
-        return {
+        record = {
             "$type": "app.bsky.feed.post",
             "text": text,
             "createdAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "facets": facets_node,
             "embed": embed_node,
         }
+        if langs:
+            record["langs"] = langs
+        return record
 
     return {
         "fetch_og": fetch_og,
@@ -345,12 +351,15 @@ def _build_compose_graph(text, url, auth, og_tags=None):
     }
 
 
-def compose_link_post(text, url, auth, og_tags=None):
+def compose_link_post(text, url, auth, og_tags=None, langs=None):
     """Compose a Bluesky link-card post AND submit it. Single flowing graph.
 
     Runs the full pipeline:
       fetch_og + facets_node (parallel) → upload_blob_node → embed_node
         → record_node → post_node
+
+    `langs`, when supplied, is a list of BCP-47 tags (e.g. ["en"]) recorded
+    in the post's `langs` field; None omits it.
 
     Returns a dict with:
         record            — the assembled app.bsky.feed.post record
@@ -365,7 +374,7 @@ def compose_link_post(text, url, auth, og_tags=None):
     upload failed, network down). The originating error is attached
     via `__cause__`.
     """
-    nodes = _build_compose_graph(text, url, auth, og_tags)
+    nodes = _build_compose_graph(text, url, auth, og_tags, langs=langs)
 
     @task(name="post_node", depends_on=[nodes["record_node"]])
     def post_node(record_node):
@@ -499,3 +508,273 @@ def unlike(like_uri, auth):
     urllib.request.urlopen(req).read()
     print(f"  \u2661 Unliked: {like_uri}")
     return {"deleted": like_uri}
+
+
+# \u2500\u2500 Session auth + record deletion \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# The library API above takes a pre-resolved `auth` dict \u2014 correct for a
+# library, but it leaves no way to invoke the tool as the manifest declares
+# (`python -m muninn_utils.bsky_card <action>`, see
+# manifests/bsky-card/muninn-bsky-card.v0.4.json). The helpers below resolve
+# auth from a handle + app password so the CLI (issue #66) can run standalone.
+
+_PDS_DEFAULT = "https://bsky.social"
+
+
+def _pds_base():
+    """PDS base URL for atproto calls. Override with BSKY_PDS; default bsky.social."""
+    return os.environ.get("BSKY_PDS", _PDS_DEFAULT).rstrip("/")
+
+
+def create_session(handle, password, pds=None):
+    """com.atproto.server.createSession \u2192 auth dict.
+
+    Returns {access_jwt, did, handle, pds} \u2014 the same `auth` shape the rest of
+    this module consumes, plus the resolved PDS for reporting.
+    """
+    pds = (pds or _pds_base()).rstrip("/")
+    payload = json.dumps({"identifier": handle, "password": password}).encode()
+    req = urllib.request.Request(
+        f"{pds}/xrpc/com.atproto.server.createSession",
+        data=payload, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    session = json.loads(urllib.request.urlopen(req).read())
+    return {
+        "access_jwt": session["accessJwt"],
+        "did": session["did"],
+        "handle": session["handle"],
+        "pds": pds,
+    }
+
+
+def resolve_handle(handle, pds=None):
+    """com.atproto.identity.resolveHandle \u2192 DID string."""
+    from urllib.parse import quote
+    pds = (pds or _pds_base()).rstrip("/")
+    resp = urllib.request.urlopen(
+        f"{pds}/xrpc/com.atproto.identity.resolveHandle?handle={quote(handle)}"
+    )
+    return json.loads(resp.read())["did"]
+
+
+def delete_post(uri, auth):
+    """com.atproto.repo.deleteRecord on a post AT-URI. Idempotent.
+
+    `uri` is an at:// URI as returned by create_post (e.g.
+    at://did:plc:.../app.bsky.feed.post/<rkey>). Deletes from the
+    authenticated repo; deleting a non-existent record is a no-op.
+    Returns {uri, deleted: True}.
+    """
+    m = re.match(r"at://[^/]+/([^/]+)/(.+)", uri)
+    if not m:
+        raise ValueError(f"Not an at:// post URI: {uri!r}")
+    collection, rkey = m.group(1), m.group(2)
+    data = json.dumps({
+        "repo": auth["did"],
+        "collection": collection,
+        "rkey": rkey,
+    }).encode()
+    req = urllib.request.Request(
+        f"{_pds_base()}/xrpc/com.atproto.repo.deleteRecord",
+        data=data, method="POST",
+        headers={
+            "Authorization": f"Bearer {auth['access_jwt']}",
+            "Content-Type": "application/json",
+        },
+    )
+    urllib.request.urlopen(req).read()
+    return {"uri": uri, "deleted": True}
+
+
+# \u2500\u2500 CLI entrypoint (issue #66) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# `python -m muninn_utils.bsky_card <action>` mirrors the manifest's three
+# actions: whoami (no input), post-link (stdin JSON), delete-post (stdin JSON).
+# Every action emits a single JSON object on stdout. Library progress prints
+# are redirected to stderr so stdout stays pure JSON; failures emit the
+# manifest's "standard" error envelope: {"error": {"code", "message"}}.
+
+class _CliError(Exception):
+    """Maps a failure to a manifest error code + human message."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _error_envelope(code, message):
+    return {"error": {"code": code, "message": message}}
+
+
+def _cli_auth():
+    """Resolve a session from BSKY_HANDLE + BSKY_APP_PASSWORD."""
+    handle = os.environ.get("BSKY_HANDLE")
+    password = os.environ.get("BSKY_APP_PASSWORD")
+    if not handle or not password:
+        raise _CliError(
+            "auth_invalid",
+            "Set BSKY_HANDLE and BSKY_APP_PASSWORD in the environment.",
+        )
+    try:
+        return create_session(handle, password)
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401):
+            raise _CliError("auth_invalid",
+                            f"createSession rejected the credentials (HTTP {e.code}).")
+        raise
+    except urllib.error.URLError as e:
+        raise _CliError("network_unreachable",
+                        f"Could not reach the PDS: {getattr(e, 'reason', e)}")
+
+
+def _action_whoami(_payload):
+    """Authenticate, confirm the handle resolves to a DID, return {handle, did, pds}."""
+    auth = _cli_auth()
+    try:
+        resolved_did = resolve_handle(auth["handle"], pds=auth.get("pds"))
+    except urllib.error.HTTPError as e:
+        raise _CliError("handle_not_found",
+                        f"resolveHandle failed for {auth['handle']} (HTTP {e.code}).")
+    except urllib.error.URLError as e:
+        raise _CliError("network_unreachable",
+                        f"Could not reach the PDS: {getattr(e, 'reason', e)}")
+    out = {"handle": auth["handle"], "did": auth["did"], "pds": auth.get("pds", _pds_base())}
+    # The session DID is authoritative; surface a mismatch rather than hide it.
+    if resolved_did != auth["did"]:
+        out["did_mismatch"] = resolved_did
+    return out
+
+
+def _action_post_link(payload):
+    """Post a URL with a link card. stdin: {text, url, og_overrides?, languages?}."""
+    if not isinstance(payload, dict):
+        raise _CliError("error", "post-link expects a JSON object on stdin.")
+    text = payload.get("text")
+    url = payload.get("url")
+    if not text or not url:
+        raise _CliError("error", "post-link requires both 'text' and 'url'.")
+
+    # Grapheme-budget pre-check mirrors the library's 300-cap contract, measured
+    # on the post-shaping text (markdown stripped, URL appended) AT Proto counts.
+    composed = final_text_for_post(text, url)
+    try:
+        from bsky_limit import fits as _fits, BSKY_LIMIT as _limit
+    except Exception:
+        _fits, _limit = (lambda t: len(t) <= 300), 300
+    if not _fits(composed):
+        raise _CliError(
+            "text_too_long",
+            f"text exceeds {_limit} graphemes after markdown strip + URL append.",
+        )
+
+    og_tags = None
+    overrides = payload.get("og_overrides")
+    if overrides:
+        og_tags = {"url": url}
+        for k in ("title", "description", "image"):
+            if overrides.get(k) is not None:
+                og_tags[k] = overrides[k]
+
+    langs = payload.get("languages") or ["en"]
+    auth = _cli_auth()
+    try:
+        result = compose_link_post(text, url, auth, og_tags=og_tags, langs=langs)
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise _CliError("rate_limited", "Bluesky rate limit hit (HTTP 429).")
+        if e.code in (400, 401):
+            raise _CliError("auth_invalid", f"createRecord rejected (HTTP {e.code}).")
+        raise
+    except urllib.error.URLError as e:
+        raise _CliError("url_unreachable", f"Network error during post: {getattr(e, 'reason', e)}")
+    post = result["post"]
+    return {"uri": post["uri"], "cid": post["cid"], "url": post["url"]}
+
+
+def _action_delete_post(payload):
+    """Delete a post by AT-URI. stdin: {uri}."""
+    if not isinstance(payload, dict) or not payload.get("uri"):
+        raise _CliError("uri_invalid", "delete-post requires a 'uri' field on stdin.")
+    uri = payload["uri"]
+    if not uri.startswith("at://"):
+        raise _CliError("uri_invalid", f"Expected an at:// URI, got {uri!r}.")
+    auth = _cli_auth()
+    try:
+        return delete_post(uri, auth)
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401):
+            raise _CliError("auth_invalid", f"deleteRecord rejected (HTTP {e.code}).")
+        raise
+    except urllib.error.URLError as e:
+        raise _CliError("network_unreachable", f"Network error during delete: {getattr(e, 'reason', e)}")
+
+
+_ACTIONS = {
+    "whoami": ("none", _action_whoami),
+    "post-link": ("stdin", _action_post_link),
+    "delete-post": ("stdin", _action_delete_post),
+}
+
+
+def _read_stdin_json():
+    import sys
+    raw = sys.stdin.read().strip()
+    return json.loads(raw) if raw else {}
+
+
+def _main(argv):
+    import sys
+    import contextlib
+
+    real_stdout = sys.stdout
+
+    def _emit(obj):
+        real_stdout.write(json.dumps(obj) + "\n")
+        real_stdout.flush()
+
+    usage = (
+        "usage: python -m muninn_utils.bsky_card <"
+        + "|".join(_ACTIONS)
+        + ">  (post-link/delete-post read a JSON object from stdin)"
+    )
+    if not argv or argv[0] in ("-h", "--help"):
+        _emit(_error_envelope("error", usage))
+        return 2
+
+    action = argv[0]
+    entry = _ACTIONS.get(action)
+    if entry is None:
+        _emit(_error_envelope("error", f"unknown action {action!r}. {usage}"))
+        return 2
+
+    input_kind, fn = entry
+    try:
+        payload = _read_stdin_json() if input_kind == "stdin" else {}
+    except json.JSONDecodeError as e:
+        _emit(_error_envelope("error", f"invalid JSON on stdin: {e}"))
+        return 1
+
+    try:
+        # Library helpers print progress to stdout; keep stdout pure JSON.
+        with contextlib.redirect_stdout(sys.stderr):
+            result = fn(payload)
+    except _CliError as e:
+        _emit(_error_envelope(e.code, e.message))
+        return 1
+    except urllib.error.HTTPError as e:
+        _emit(_error_envelope("error", f"HTTP {e.code}: {e.reason}"))
+        return 1
+    except urllib.error.URLError as e:
+        _emit(_error_envelope("network_unreachable", str(getattr(e, "reason", e))))
+        return 1
+    except Exception as e:  # noqa: BLE001 \u2014 last-resort envelope; never bare-crash
+        _emit(_error_envelope("error", f"{type(e).__name__}: {e}"))
+        return 1
+
+    _emit(result)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main(sys.argv[1:]))
