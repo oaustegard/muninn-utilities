@@ -279,6 +279,215 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
             )
 
 
+# ── Template-filler (issue #67) ────────────────────────────────────
+
+# Per-session cache of fetched templates, keyed by (repo, ref). The template
+# changes rarely; fetching it once per session is enough.
+_TEMPLATE_CACHE: dict = {}
+
+# The five HTML entities that are structurally legal in attribute / title
+# content. Everything else must be a literal Unicode character, because
+# check 7 of validate_blog_html rejects entities in card-surfaced fields and
+# Bluesky's CardyB scraper renders them literally. We don't decode here — we
+# refuse, so the caller fixes the source text rather than shipping a broken
+# card. Mirrors _ALLOWED_ENTITIES in validate_blog_html.
+_CARD_SAFE_ENTITIES = {"&amp;", "&lt;", "&gt;", "&quot;", "&apos;"}
+_CARD_ENTITY_RE = re.compile(r'&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);')
+
+
+def _attr_escape(s: str) -> str:
+    """Escape a string for use inside a double-quoted HTML attribute / title.
+
+    Only the structural five (& < > " ') are escaped, and only where needed.
+    Unicode is left intact — check 7 of validate_blog_html WANTS literal
+    Unicode (curly quotes, em-dashes) in card fields, not entities.
+    """
+    return (
+        s.replace("&", "&amp;")
+         .replace("<", "&lt;")
+         .replace(">", "&gt;")
+         .replace('"', "&quot;")
+    )
+
+
+def _assert_card_safe(field_name: str, value: str) -> None:
+    """Raise if `value` carries non-structural HTML entities.
+
+    Pre-flights check 7 of validate_blog_html for the card-surfaced fields
+    (title, description, summary) so the failure names the offending argument
+    instead of surfacing later as an opaque validator raise on assembled HTML.
+    """
+    bad = sorted({
+        e for e in _CARD_ENTITY_RE.findall(value)
+        if e not in _CARD_SAFE_ENTITIES
+    })
+    if bad:
+        raise ValueError(
+            f"{field_name} contains HTML entity reference(s) {bad}. Bluesky's "
+            f"CardyB scraper does not decode entities in card fields — they "
+            f"render literally. Pass literal Unicode instead "
+            f"(\u2019 \u2018 \u201c \u201d \u2014 \u2026). "
+            f"See validate_blog_html check 7."
+        )
+
+
+def new_post(title, summary, body_html, *, author="Muninn", published=None,
+             repo="oaustegard/muninn.austegard.com", og_image=None,
+             description=None, ref="main") -> str:
+    """Build a blog-post HTML document from `blog/_template.html`, filled.
+
+    The point (issue #67): collapse "follow the publishing procedure" into
+    "call one function," so freehanding the HTML — or scraping a live post for
+    its structure — stops being the path of least resistance. The returned
+    string passes `validate_blog_html(html, repo)` by construction.
+
+    Args:
+        title:       Post title. Used for <title>, <h1>, og:title.
+        summary:     Short summary. Used for <meta name="description">,
+                     og:description, and (unless `description` differs) the
+                     index text. Surfaces on the Bluesky card — keep it clean
+                     Unicode, no HTML entities.
+        body_html:   The article body as an HTML fragment (already-rendered
+                     <p>/<h2>/<img>… markup). Inserted verbatim inside
+                     <article>. If `og_image` is set, this MUST contain at
+                     least one <img> with a non-empty alt="" (validator
+                     check 4 + 6) — the hero has to render on-page, not only
+                     on the card.
+        author:      Byline name. Defaults to "Muninn".
+        published:   ISO-8601 timestamp for article:published_time. Defaults
+                     to now (UTC). feed.xml indexing depends on this tag.
+        repo:        Site repo the post will live in. Selects the template
+                     source and is the repo validate_blog_html probes for the
+                     og:image asset. Defaults to muninn.austegard.com.
+        og_image:    Optional hero image URL/path for the og:image meta. When
+                     set, `body_html` must include a matching inline <img>,
+                     and the asset must already be committed to `repo`
+                     (commit it via publish_page BEFORE publishing the post —
+                     validate_blog_html check 5 probes for it at `ref`).
+        description: Optional <meta name="description"> override when you want
+                     it to differ from `summary`. Defaults to `summary`.
+        ref:         Git ref to fetch the template from. Defaults to "main".
+
+    Returns:
+        A complete HTML document string, conformant to validate_blog_html.
+
+    Raises:
+        ValueError: if the template fetch fails (no silent freehand fallback),
+            or if a card field carries non-structural HTML entities.
+
+    Then the documented flow is:
+        html = new_post(title, summary, body_html, og_image=...)
+        result = publish_and_announce(path, html, bsky_text, auth, feed_entry=...)
+    """
+    # 1. Fetch the template — hard requirement, no fallback. A freehand
+    #    fallback here would defeat the entire purpose of the issue.
+    cache_key = (repo, ref)
+    if cache_key not in _TEMPLATE_CACHE:
+        try:
+            _TEMPLATE_CACHE[cache_key] = _gh_raw(repo, "blog/_template.html", ref)
+        except Exception as e:
+            raise ValueError(
+                f"Could not fetch blog/_template.html from {repo}@{ref}: {e}. "
+                f"new_post refuses to freehand the HTML — fix the fetch "
+                f"(token? repo? ref?) and retry."
+            ) from e
+    html = _TEMPLATE_CACHE[cache_key]
+
+    if published is None:
+        published = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        # Validate early so the caller sees a clear error, not a later
+        # validate_blog_html raise on assembled HTML.
+        try:
+            datetime.fromisoformat(str(published).replace("Z", "+00:00"))
+        except ValueError as e:
+            raise ValueError(
+                f"published={published!r} is not a parseable ISO timestamp "
+                f"({e})."
+            ) from e
+
+    if description is None:
+        description = summary
+
+    # Card-surfaced fields must be entity-free (validator check 7). Refuse
+    # loudly now, naming the argument, instead of letting the assembled-HTML
+    # validator raise on an anonymous match later.
+    _assert_card_safe("title", title)
+    _assert_card_safe("summary", summary)
+    _assert_card_safe("description", description)
+
+    title_a = _attr_escape(title)
+    desc_a = _attr_escape(description)
+    summary_a = _attr_escape(summary)
+
+    # Human-readable byline date in the site's "Month Day, Year" style.
+    _dt = datetime.fromisoformat(str(published).replace("Z", "+00:00"))
+    byline_date = f"{_dt.strftime('%B')} {_dt.day}, {_dt.year}"
+
+    # 2. Fill placeholders by targeted replacement of the template's known
+    #    marker strings. Replacing exact markers (rather than regex-rebuilding
+    #    the document) keeps new_post coupled to the template's structure: if
+    #    the template changes a marker, the unfilled placeholder shows up in
+    #    output and the validator or a human catches it, instead of new_post
+    #    silently emitting its own divergent HTML.
+    replacements = [
+        # <title> + og:title + <h1>
+        ("<title>Post Title Here</title>", f"<title>{title_a}</title>"),
+        ('<meta property="og:title" content="Post Title Here">',
+         f'<meta property="og:title" content="{title_a}">'),
+        ("<h1>Post Title Here</h1>", f"<h1>{title}</h1>"),
+        # description + og:description
+        ('<meta name="description" content="A short summary for search '
+         'engines and the blog index.">',
+         f'<meta name="description" content="{desc_a}">'),
+        ('<meta property="og:description" content="A short summary for search '
+         'engines and the blog index.">',
+         f'<meta property="og:description" content="{desc_a}">'),
+        # article:summary (index text)
+        ('<meta name="article:summary" content="Summary shown on the blog '
+         'index page.">',
+         f'<meta name="article:summary" content="{summary_a}">'),
+        # published_time
+        ('<meta name="article:published_time" content="2026-01-01T00:00:00Z">',
+         f'<meta name="article:published_time" content="{published}">'),
+        # author meta
+        ('<meta name="article:author" content="Oskar Austegard">',
+         f'<meta name="article:author" content="{_attr_escape(author)}">'),
+        # byline — class="post-meta" is preserved (validator check 2)
+        ('<p class="post-meta">Written by Author &middot; Month Day, Year</p>',
+         f'<p class="post-meta">Written by {author} \u00b7 {byline_date}</p>'),
+        # body — replace the placeholder content block
+        ("<!-- Post content goes here -->\n<p>First paragraph...</p>",
+         body_html),
+        # bsky:uri — collapse the example AT-URI to an empty stub so
+        # link_engagement can fill it post-announce (validator check 3 only
+        # needs the tag present; the inline auto-wire script skips on '...').
+        ('<meta name="bsky:uri" content="at://did:plc:.../app.bsky.feed.post/...">',
+         '<meta name="bsky:uri" content="">'),
+    ]
+    for old, new in replacements:
+        html = html.replace(old, new)
+
+    # 3. og:image: the template ships a commented-out-by-example tag with a
+    #    placeholder path. Set it to the real URL, or strip the line if no
+    #    hero — leaving the placeholder path would fail validator check 5
+    #    (asset doesn't exist).
+    og_line_re = re.compile(
+        r'[ \t]*<meta property="og:image" content="[^"]*">\n?')
+    if og_image:
+        html = og_line_re.sub(
+            f'    <meta property="og:image" content="{_attr_escape(og_image)}">\n',
+            html, count=1)
+    else:
+        html = og_line_re.sub("", html, count=1)
+
+    # 4. Construct-time guarantee: the returned HTML passes the validator.
+    #    This is the contract ("returns HTML that passes validate_blog_html by
+    #    construction") enforced, not merely asserted in the docstring.
+    validate_blog_html(html, repo, ref)
+    return html
+
+
 def publish_page(repo, path, content, message=None):
     """Commit a single file to GitHub Pages repo. Returns commit SHA.
 
