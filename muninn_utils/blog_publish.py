@@ -748,20 +748,22 @@ def publish_and_announce(path, content, bsky_text, auth,
                          feed_entry=None,
                          commit_message=None,
                          skip_deploy_wait=False,
-                         validate_html=True):
-    """Publish page → wait for deploy → update feed; bsky chain runs detached.
+                         validate_html=True,
+                         reindex=None):
+    """Publish page → wait for deploy → update feed; bsky + reindex run detached.
 
     Internal shape (flowing graph):
 
         publish_page_node ──▶ wait_for_deploy_node ──▶ update_feed_node  [terminal]
                                        │
-                                       └──▶ announce_bsky [detached]
-                                                  │
-                                                  └──▶ link_engagement_node [detached]
+                                       ├──▶ announce_bsky [detached]
+                                       │          │
+                                       │          └──▶ link_engagement_node [detached]
+                                       └──▶ reindex_node [detached]  (only if reindex=)
 
-    The bsky leg is auto-discovered (v1.2 flowing) — its dependency
-    (wait_for_deploy_node) is reachable from the terminal, so the runner picks
-    it up without an explicit terminal of its own. Failures there land in
+    The detached legs are auto-discovered (v1.2 flowing) — each depends on
+    wait_for_deploy_node, reachable from the terminal, so the runner picks them
+    up without an explicit terminal of their own. Failures there land in
     `flow.detached_failures` and the function still returns the page URL.
 
     See issue oaustegard/claude-skills#616.
@@ -776,6 +778,16 @@ def publish_and_announce(path, content, bsky_text, auth,
     BSKY_LIMIT before any commit lands. The detached belt-and-suspenders
     gate inside the flow stays, but the structural fix is to fail before
     publish_page commits anything.
+
+    `reindex` is an optional zero-arg callable that refreshes the site's search
+    index after the page is committed. For muninn.austegard.com the search
+    index is a derived artifact in Cloudflare KV; publishing a post must refresh
+    it or the post is unfindable. There is no CI for this — the publisher (this
+    session) owns the reindex, so it is wired in here as a step of the publish
+    flow rather than a separate workflow. It runs detached: a reindex failure
+    lands in `detached_failures`, never blocking the page/bsky result, and its
+    return value surfaces as `result["reindexed"]`. Pass None to skip (non-blog
+    pages, or sites without a search index).
     """
     if validate_html:
         validate_blog_html(content, repo)
@@ -863,6 +875,23 @@ def publish_and_announce(path, content, bsky_text, auth,
         sha = link_engagement(repo, path, announce_bsky["url"])
         return {"update_sha": sha}
 
+    # Reindex leg — refresh the search index after the page commits. Detached
+    # and conditional: only built when a reindex callable is supplied, so the
+    # node never appears (and never fails) for callers that don't have a
+    # search index. Depends on wait_for_deploy_node so it runs after the page
+    # is committed, in parallel with the bsky announce.
+    reindex_node = None
+    if reindex is not None:
+        @task(
+            name="reindex_node",
+            depends_on=[wait_for_deploy_node],
+            detached=True,
+        )
+        def reindex_node(wait_for_deploy_node):
+            out = reindex()
+            print("  ✓ Search index reindexed")
+            return {"reindex": out}
+
     flow = Flow(update_feed_node)
     flow.run()
 
@@ -889,5 +918,6 @@ def publish_and_announce(path, content, bsky_text, auth,
         "feed_sha": _val(update_feed_node, "feed_sha"),
         "bsky_post": bsky_post,
         "update_sha": _val(link_engagement_node, "update_sha"),
+        "reindexed": _val(reindex_node, "reindex") if reindex_node is not None else None,
         "detached_failures": detached_failures,
     }
