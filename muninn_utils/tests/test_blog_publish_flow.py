@@ -325,6 +325,66 @@ def test_bsky_failure_does_not_block_main_return(monkeypatch):
     assert "503" in failures["announce_bsky"]
 
 
+def test_reindex_runs_as_detached_step(monkeypatch):
+    """A reindex callable runs after deploy; its return surfaces as result['reindexed']."""
+    _reset(monkeypatch)
+    reindex = MagicMock(return_value={"index_version": "c607ec4b603b"})
+
+    result = bp.publish_and_announce(
+        path="blog/r.html",
+        content="<html/>",
+        validate_html=False,
+        bsky_text="R",
+        auth={"access_jwt": "j", "did": "did", "handle": "h"},
+        feed_entry={"title": "R", "summary": "..."},
+        reindex=reindex,
+    )
+
+    assert reindex.call_count == 1
+    assert result["reindexed"] == {"index_version": "c607ec4b603b"}
+    assert result["detached_failures"] == []
+    # the page/bsky chain is unaffected
+    assert result["commit_sha"] == "abcdef1234"
+    assert result["bsky_post"]["url"].startswith("https://bsky.app/")
+
+
+def test_reindex_absent_by_default(monkeypatch):
+    """No reindex callable → no reindex node, result['reindexed'] is None."""
+    _reset(monkeypatch)
+    result = bp.publish_and_announce(
+        path="blog/r.html",
+        content="<html/>",
+        validate_html=False,
+        bsky_text="R",
+        auth={"access_jwt": "j", "did": "did", "handle": "h"},
+        feed_entry={"title": "R", "summary": "..."},
+    )
+    assert result["reindexed"] is None
+
+
+def test_reindex_failure_does_not_block_main_return(monkeypatch):
+    """reindex raises → reindexed is None, failure is detached, page/bsky still succeed."""
+    _reset(monkeypatch)
+    reindex = MagicMock(side_effect=RuntimeError("KV PUT 500"))
+
+    result = bp.publish_and_announce(
+        path="blog/r.html",
+        content="<html/>",
+        validate_html=False,
+        bsky_text="R",
+        auth={"access_jwt": "j", "did": "did", "handle": "h"},
+        feed_entry={"title": "R", "summary": "..."},
+        reindex=reindex,
+    )
+
+    assert result["commit_sha"] == "abcdef1234"
+    assert result["bsky_post"]["url"].startswith("https://bsky.app/")
+    assert result["reindexed"] is None
+    failures = dict(result["detached_failures"])
+    assert "reindex_node" in failures
+    assert "KV PUT 500" in failures["reindex_node"]
+
+
 # ── validate_blog_html (issue #20) ──────────────────────────────────
 
 import pytest
