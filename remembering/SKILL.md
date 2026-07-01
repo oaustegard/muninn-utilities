@@ -23,6 +23,9 @@ Config loads fast at startup. Memories are queried as needed.
 ## Boot Sequence
 
 Load context at conversation start to maintain continuity across sessions.
+The environment prelude (repo fetch at pinned SHAs, env sourcing, `.pth`
+setup) is the sibling [muninn-boot skill](../muninn-boot/SKILL.md), installed
+as a Claude project skill; `boot()` below assumes it has run.
 
 ```python
 from scripts import boot
