@@ -60,7 +60,7 @@ def create_tables():
             updated_at TEXT NOT NULL,
             char_limit INTEGER,
             read_only BOOLEAN DEFAULT FALSE,
-            boot_load INTEGER DEFAULT 1,
+            boot_load INTEGER DEFAULT 0,
             priority INTEGER DEFAULT 0
         )
     """)
@@ -102,7 +102,7 @@ def migrate_schema():
         pass  # Column already exists
 
     try:
-        _exec("ALTER TABLE config ADD COLUMN boot_load INTEGER DEFAULT 1")
+        _exec("ALTER TABLE config ADD COLUMN boot_load INTEGER DEFAULT 1")  # legacy migration keeps 1: pre-column entries were de facto boot-loaded
         print("Added boot_load column to config table")
     except:
         pass  # Column already exists
