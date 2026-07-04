@@ -39,8 +39,11 @@ def config_set(key: str, value: str, category: str, *,
         char_limit: Optional character limit for value (enforced on writes)
         read_only: Mark as read-only (advisory - not enforced by this function)
         boot_load: Whether the entry loads at boot. If None (default), existing
-            entries preserve their current boot_load and new entries default to
-            True. Pass True/False to set explicitly.
+            entries preserve their current boot_load and NEW entries default to
+            False (reference-only, reachable via config_get). Boot visibility is
+            for dispatch, not content: if an entry deserves boot-load, write it
+            as a compact trigger (skill-frontmatter-style "when X -> config_get
+            Y") and pass boot_load=True explicitly. Payloads stay reference.
 
     Raises:
         ValueError: If category invalid or value exceeds char_limit
@@ -67,8 +70,12 @@ def config_set(key: str, value: str, category: str, *,
         else:
             boot_load_val = 1 if boot_load else 0
     else:
-        # New entry: default to boot_load=1 (matches schema default), or use explicit value.
-        boot_load_val = 1 if (boot_load is None or boot_load) else 0
+        # New entry: default to boot_load=0 (reference-only). Boot-loading is
+        # opt-in via boot_load=True and should be reserved for trigger-shaped
+        # entries; payloads load on demand via config_get. (2026-07-04, after
+        # the boot-diet audit found ~120K chars of payload boot-rendered by
+        # this default.)
+        boot_load_val = 1 if boot_load else 0
 
     # Enforce character limit if specified
     if char_limit and len(value) > char_limit:
