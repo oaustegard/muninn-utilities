@@ -100,12 +100,34 @@ def branch_exists(repo, branch):
 
 
 def create_branch(repo, branch, base="main"):
-    """Create ``branch`` from ``base`` HEAD. If it already exists, return its ref unchanged."""
-    if branch_exists(repo, branch):
-        return _gh("GET", f"/repos/{repo}/git/ref/heads/{branch}")
+    """Create ``branch`` from ``base`` HEAD. If it already exists, return its ref unchanged.
+
+    Race-proof against GitHub's eventually-consistent read replicas (observed
+    2026-07-04, three failures in one session): a GET immediately after a
+    write may 404, and an existence check immediately before a create may be
+    stale. So: POST first and treat 422 ("Reference already exists") as
+    success, then fetch the ref tolerating brief 404s.
+    """
     base_ref = _gh("GET", f"/repos/{repo}/git/ref/heads/{base}")
     sha = base_ref["object"]["sha"]
-    return _gh("POST", f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
+    try:
+        return _gh("POST", f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
+    except urllib.error.HTTPError as e:
+        if e.code != 422:
+            raise
+        # 422 == branch already exists (possibly created milliseconds ago by
+        # this same process). Read the ref, riding out replica lag.
+        last = None
+        for delay in (0.0, 0.5, 1.5, 3.0):
+            if delay:
+                time.sleep(delay)
+            try:
+                return _gh("GET", f"/repos/{repo}/git/ref/heads/{branch}")
+            except urllib.error.HTTPError as e2:
+                if e2.code != 404:
+                    raise
+                last = e2
+        raise last
 
 
 def commit_file(repo, path, content, *, branch, message, base="main"):
