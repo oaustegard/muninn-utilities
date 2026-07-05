@@ -422,13 +422,17 @@ def test_config_set_preserves_boot_load():
 
     KEY = "test-boot-load-preservation"
     try:
-        # New entry defaults to boot_load=1
+        # New entry defaults to boot_load=0 (reference-only; boot-load is
+        # opt-in for trigger-shaped entries — 2026-07-04 boot-diet default flip)
         config_set(KEY, "v1", "ops")
         rows = _exec("SELECT boot_load FROM config WHERE key=?", [KEY])
-        assert rows[0]["boot_load"] in (1, "1"), \
-            f"new entry should default to boot_load=1, got {rows[0]['boot_load']}"
+        assert rows[0]["boot_load"] in (0, "0"), \
+            f"new entry should default to boot_load=0, got {rows[0]['boot_load']}"
 
-        # Demote
+        # Promote, then confirm demote still works
+        config_set_boot_load(KEY, True)
+        rows = _exec("SELECT boot_load FROM config WHERE key=?", [KEY])
+        assert rows[0]["boot_load"] in (1, "1")
         config_set_boot_load(KEY, False)
         rows = _exec("SELECT boot_load FROM config WHERE key=?", [KEY])
         assert rows[0]["boot_load"] in (0, "0")

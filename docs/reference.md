@@ -33,7 +33,7 @@ Core store: write, read, revise, and maintain memories over Turso.
 Operating instructions stored as queryable data, separate from memories.
 
 - `config_get(key)` — Get a config value by key.
-- `config_set(key, value, category, *, char_limit=None, read_only=False, boot_load=None)` — Set a config value with optional constraints. `boot_load=True` loads it at session start.
+- `config_set(key, value, category, *, char_limit=None, read_only=False, boot_load=None)` — Set a config value with optional constraints. `boot_load=True` loads it at session start; new entries default to reference-only (`boot_load=0`) — boot-load is opt-in and should be a compact trigger pointing at the payload, not the payload itself.
 - `set_rule(key, value, category, *, drift_class, rationale=None, char_limit=None, read_only=False, boot_load=None)` — Set a profile or ops rule with a mandatory `drift_class` recording how it changed.
 - `config_list(category=None)` — List config entries, optionally filtered by category.
 - `config_delete(key)` — Delete a config entry.
