@@ -2,9 +2,24 @@
 # Muninn boot — fetch pinned repos, load boot env, run boot().
 # Pins below are the reviewed artifact; bump only after reviewing the diff.
 set -e
-cd /tmp
 CLAUDE_SKILLS_SHA=b2fe13742b32400f8b69e8b793289fe1e7d107be
 MUNINN_UTILS_SHA=ccbb64725f4351c5eb0d95811f2c46a297e2fe67
+
+# Warm-container fast path. The project instruction is reinjected every message,
+# so this script is invoked many times per conversation. The sentinel's lifetime
+# is the container's: a recycled container lacks it and boots fully; a warm one
+# exits here. Content = the pins, so a pin bump self-invalidates it. skinny boot
+# (BOOT_MODE set) always runs fully. rm the sentinel to force.
+SENTINEL=/home/claude/.muninn-booted
+WANT="$CLAUDE_SKILLS_SHA $MUNINN_UTILS_SHA"
+if [ -z "$BOOT_MODE" ] \
+   && [ "$(cat "$SENTINEL" 2>/dev/null)" = "$WANT" ] \
+   && [ -d /home/claude/muninn-utilities/muninn_utils ]; then
+  echo "warm boot: already booted this container ($WANT). rm $SENTINEL to force."
+  exit 0
+fi
+
+cd /tmp
 
 curl -sL "https://codeload.github.com/oaustegard/claude-skills/tar.gz/$CLAUDE_SKILLS_SHA" -o cs.tar.gz \
   && tar -xzf cs.tar.gz \
@@ -33,3 +48,5 @@ import os
 from scripts import boot
 print(boot(mode=os.environ.get('BOOT_MODE')))
 EOF
+
+printf '%s' "$WANT" > "$SENTINEL"   # last line, only on success
