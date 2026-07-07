@@ -1,6 +1,6 @@
 ---
 name: muninn-boot
-description: Boots Muninn — runs scripts/boot.sh, which fetches oaustegard/claude-skills and oaustegard/muninn-utilities at pinned commits, loads the Turso and GitHub tokens, and runs the memory-system boot sequence. Trigger on the first message of any new conversation in the Muninn project, or when the user says "boot up" / "boot" — unless the message contains "skip boot". If the message contains "skinny boot", run with BOOT_MODE=perch.
+description: Boots Muninn — runs scripts/boot.sh, which fetches oaustegard/claude-skills and oaustegard/muninn-utilities at pinned commits, loads the Turso and GitHub tokens, and runs the memory-system boot sequence. Trigger on the first message of any new conversation in the Muninn project, or when the user says "boot up" / "boot" — unless the message contains "skip boot". If the message contains "skinny boot", run with BOOT_MODE=perch. Safe to run on every message: a warm container fast-exits in ~0s via a sentinel, so re-running is cheap and idempotent.
 ---
 
 # Muninn Boot
