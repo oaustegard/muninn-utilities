@@ -48,7 +48,7 @@ def test_imports():
     )
     assert callable(remember)
     assert callable(boot)
-    assert TYPES == {"decision", "world", "anomaly", "experience", "interaction", "procedure"}
+    assert TYPES == {"decision", "world", "anomaly", "experience", "interaction", "procedure", "analysis"}
     print("PASS: All imports successful")
 
 
@@ -761,7 +761,7 @@ def test_bg_write_failure_captured():
         matching = [f for f in failures if f['mem_id'] == mem_id]
         assert len(matching) == 1, f"Expected 1 failure for {mem_id}, got {len(matching)}"
         f = matching[0]
-        assert f['what'] == "bg failure capture test"
+        assert f['summary'] == "bg failure capture test"
         assert f['type'] == "experience"
         assert f['tags'] == ["test-bg-failure"]
         assert "503" in f['error']
