@@ -28,6 +28,7 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   perch_publish.py        Perch flight log publish
   perch_triage.py         Perch triage workflow
   remind.py               Reminder/nag memory creation
+  satisfaction_skew.py    Measure failure:success storage skew — correction vs satisfaction-analog ratio, trend, shapes (#85)
   task_policy.py          Task routing policy
   verify_patch.py         Patch verification utilities
   whtwnd.py               WhiteWind (AT-proto blog) posting
