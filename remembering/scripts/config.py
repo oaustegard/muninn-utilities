@@ -11,17 +11,46 @@ Imports from: turso
 v5.0.0: Removed local cache dependency. All reads/writes go to Turso directly.
 """
 
+import os
 from datetime import datetime, UTC
 
 from .turso import _exec
 from .aliases import accept_aliases
 
 
+def config_fire(key: str) -> None:
+    """Record that a boot-loaded config entry fired (was config_get'd).
+
+    Increments ``fire_count`` and stamps ``last_fired`` — but only for
+    boot-loaded keys, so payload/reference reads don't inflate the counter. This
+    is the exact go-forward replacement for boot_ledger's memory-corpus fire
+    proxy (#84). Best-effort and self-silencing: a missing column (pre-migration
+    DB) or any write error is swallowed, because instrumentation must never
+    break a read. One statement, no extra round-trip beyond the UPDATE.
+    """
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    try:
+        _exec(
+            "UPDATE config SET fire_count = COALESCE(fire_count, 0) + 1, "
+            "last_fired = ? WHERE key = ? AND boot_load = 1",
+            [now, key],
+        )
+    except Exception:
+        pass  # column not yet migrated, or transient write error — never block a read
+
+
 # @lat: [[memory#Config System]]
 @accept_aliases
 def config_get(key: str) -> str | None:
-    """Get a config value by key."""
+    """Get a config value by key.
+
+    When ``MUNINN_INSTRUMENT_FIRES`` is set, records a fire for boot-loaded keys
+    (see ``config_fire``) so a measurement window can count real trigger usage.
+    Off by default: zero added cost, so normal sessions pay nothing.
+    """
     result = _exec("SELECT value FROM config WHERE key = ?", [key])
+    if os.environ.get("MUNINN_INSTRUMENT_FIRES"):
+        config_fire(key)
     return result[0]["value"] if result else None
 
 
