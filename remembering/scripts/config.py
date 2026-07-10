@@ -97,6 +97,36 @@ def config_set(key: str, value: str, category: str, *,
 _VALID_DRIFT_CLASSES = ("additive", "narrowing", "broadening", "replacing")
 
 
+def _run_correction_gate(key, category, prior_value, value, boot_load) -> None:
+    """Run the muninn_utils correction gate on a proposed rule change.
+
+    Soft dependency: swallow ImportError (muninn_utils not materialized) and any
+    gate-internal error (never let the gate itself block a legitimate write).
+    Only a *decisive REJECT* raises — that's the gate doing its job.
+
+    The gate is scoped to boot-loaded changes: a reference-only entry (loaded on
+    demand via config_get) isn't permanent boot context, so there's nothing to
+    regress. ``boot_load is False`` skips; ``True`` and ``None`` (preserve /
+    default) are gated, and the gate self-limits to measurable slices.
+    """
+    if boot_load is False:
+        return
+    try:
+        from muninn_utils.correction_gate import gate_config_correction
+    except Exception:
+        return  # muninn_utils not present — proceed as before
+    try:
+        result = gate_config_correction(key, category, prior_value, value)
+    except Exception:
+        return  # a gate failure must not block a legitimate correction
+    if result is not None and not result.passed:
+        raise ValueError(
+            f"correction_gate rejected boot-loaded change to '{key}': "
+            f"{result.summary}. Fix the correction (or update the benchmark if "
+            f"the behaviour change is intended) and retry."
+        )
+
+
 @accept_aliases
 def set_rule(key: str, value: str, category: str, *,
              drift_class: str, rationale: str = None,
@@ -153,6 +183,15 @@ def set_rule(key: str, value: str, category: str, *,
 
     # Capture prior value BEFORE writing so the audit memory has the diff.
     prior_value = config_get(key)
+
+    # Stage-3 regression gate (issue #83): before a boot-loaded correction
+    # becomes permanent context, replay it against the correction benchmark.
+    # Soft dependency — if muninn_utils isn't materialized, or there's nothing
+    # objectively measurable about this change, the gate returns None and we
+    # proceed exactly as before. A measurable correction that regresses (a new
+    # trigger firing on an unrelated past input, or over-budget boot bloat) is
+    # blocked here rather than shipping on faith.
+    _run_correction_gate(key, category, prior_value, value, boot_load)
 
     # Additive should mean "new entry" or "strictly added scope". If a prior
     # value exists and the caller claims additive, that's a likely mis-classification;
