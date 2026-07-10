@@ -223,7 +223,7 @@ def test_fetch_muninn_utils_network_failure_is_safe():
             utilities.UTIL_DIR = tmpdir
             try:
                 result = utilities.fetch_muninn_utils()
-                assert result == {"fetched": [], "failed": []}
+                assert result == {"fetched": [], "failed": [], "use_when": {}}
             finally:
                 utilities.UTIL_DIR = old_dir
 
@@ -241,7 +241,7 @@ def test_fetch_muninn_utils_corrupt_tarball_is_safe():
             utilities.UTIL_DIR = tmpdir
             try:
                 result = utilities.fetch_muninn_utils()
-                assert result == {"fetched": [], "failed": []}
+                assert result == {"fetched": [], "failed": [], "use_when": {}}
             finally:
                 utilities.UTIL_DIR = old_dir
 
