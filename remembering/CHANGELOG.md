@@ -2,6 +2,36 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.14.0] - 2026-07-10
+
+Stage-3 regression gate for self-corrections (#83). Therapy mined weaknesses
+and proposed bounded edits (new desire-triggers, ops entries), but nothing
+validated a correction before it became permanent boot-loaded context —
+corrections shipped on faith. This adds Weng's Self-Harness stage 3 (held-in +
+held-out regression) over the three objectively-measurable slices; voice and
+relevance stay hand-evolved.
+
+### Added
+
+- `set_rule()` now runs the `muninn_utils.correction_gate` before committing a
+  **boot-loaded** rule change. The dependency is soft (lazy import, fail-open):
+  if `muninn_utils` isn't materialized, or the change has nothing objectively
+  measurable, the write proceeds exactly as before. A measurable correction
+  that regresses — a new `recall-triggers` entry firing on an unrelated past
+  input (bloat / false-positive), or an ops entry pushing boot context over
+  budget — raises `ValueError` and is blocked. Reference-only writes
+  (`boot_load=False`) are never gated. (#83)
+
+  The gate itself lives in `muninn-utilities` as `correction_gate.py` (sibling
+  to `skill_lint`): a pure trigger-firing evaluator (re-derives the
+  `hints.py` config-fallback term∩trigger match, no Turso), an injectable
+  recall-precision evaluator (`query -> ids` runner), a boot-budget guard, and
+  a seed benchmark (`correction_gate_benchmark.json`) whose held-out cases are
+  drawn from real sessions, not synthetic scenarios (per `eval-realism`).
+  Held-in: the motivating input must fail under the baseline and pass under the
+  candidate — a correction that fixes nothing is rejected. Held-out:
+  differential replay asserts no behaviour change where none was intended.
+
 ## [5.13.0] - 2026-06-20
 
 Tier-1 memory-hygiene follow-on from the memory-redundancy probe

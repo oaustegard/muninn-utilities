@@ -21,6 +21,7 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   blog_publish.py         Full blog post publish + Bluesky announce
   bsky_card.py            Bluesky card/post creation
   bsky_limit.py           300-grapheme cap check for bsky posts
+  correction_gate.py      Held-in/held-out regression gate for boot-loaded self-corrections (#83)
   issue_close.py          GitHub issue close with memory
   memory_tfidf.py         TF-IDF over memory corpus
   news_watch.py           News monitoring utilities
