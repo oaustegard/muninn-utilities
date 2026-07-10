@@ -114,6 +114,23 @@ def migrate_schema():
     except:
         pass  # Column already exists
 
+    # #84 (boot_ledger): fire instrumentation. fire_count/last_fired let a
+    # measurement window count how often a boot-loaded entry is actually
+    # config_get'd, replacing the memory-corpus fire-rate proxy with exact data.
+    # Incremented (opt-in, boot-loaded keys only) by config_get when
+    # MUNINN_INSTRUMENT_FIRES is set — zero cost otherwise.
+    try:
+        _exec("ALTER TABLE config ADD COLUMN fire_count INTEGER DEFAULT 0")
+        print("Added fire_count column to config table")
+    except:
+        pass  # Column already exists
+
+    try:
+        _exec("ALTER TABLE config ADD COLUMN last_fired TEXT")
+        print("Added last_fired column to config table")
+    except:
+        pass  # Column already exists
+
     # v3.2.0: Re-enable session_id column (was removed in v2.0.0, now re-added)
     try:
         _exec("ALTER TABLE memories ADD COLUMN session_id TEXT")
