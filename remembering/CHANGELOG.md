@@ -2,6 +2,50 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.15.0] - 2026-07-18
+
+Trigger-first capability routing in boot output. Oskar kept having to nudge
+Muninn toward existing skills, utilities, and protocols because boot surfaced
+them inventory-first: the hub's skill list is names-only (and truncated by the
+SessionStart ~2KB stdout cap), and utilities rendered as import statements
+with the use_when hint demoted to a trailing comment. A model reaches for a
+tool when the task shape it is holding matches a trigger it has seen — so the
+routing must lead with the trigger, live in the untruncated boot() payload,
+and stay small enough to load every session.
+
+### Added
+
+- `scripts/capabilities.py` — renders a `## Task Routing (task shape →
+  reach for)` subsection under CAPABILITIES: protocol rows (verbatim, gated
+  on an optional `exists` path probe so CCotw-only rows like the /mnt/muninn
+  memfs grep vanish cleanly on Claude.ai), a curated skill tier whose trigger
+  text is pulled live from each skill's SKILL.md frontmatter description at
+  render time (snippets start at the "Use when" clause; block scalars
+  handled; skills missing from disk are skipped, never invented), and a
+  discovery tail with the on-disk skill count + finding-skills search
+  command so the long tail stays one query away.
+- `scripts/defaults/capability_map.json` — the version-controlled default
+  map (2 protocols + 10-skill tier, seeded from the hub's curated slash-skill
+  list). Overridable in-session via config('capability-map'), same pattern
+  as ops-topics, so triggers can be tuned without a release.
+- `tests/test_capabilities.py` — 24 filesystem-only tests (no Turso, no
+  network): frontmatter extraction incl. block scalars, trigger snippeting,
+  probe gating, {skills} placeholder expansion, config override + fallback,
+  utilities rendering.
+
+### Changed
+
+- Boot CAPABILITIES section restructured: heading is now "CAPABILITIES —
+  reach for these before hand-rolling"; Task Routing renders first, then
+  Utilities, then GitHub Access (environment status, least trigger-shaped,
+  moved last). Utilities lines flipped from import-first (`from muninn_utils
+  import x  # when…`) to trigger-first (`when → x`) with the import path
+  stated once in the heading; utilities without a use_when hint collapse to
+  a single roster line. Legacy rendering retained as fallback if the
+  capabilities module fails, so utilities never vanish from boot output.
+  Rendered cost of the full section on a live mount: ~5K chars (~1.2K
+  tokens); boot_ledger measures whether entries keep earning their keep.
+
 ## [5.14.0] - 2026-07-10
 
 Stage-3 regression gate for self-corrections (#83). Therapy mined weaknesses

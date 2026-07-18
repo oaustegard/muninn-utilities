@@ -1150,10 +1150,43 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
             ref_keys = sorted([o['key'] for o in reference_ops])
             output.append(", ".join(ref_keys))
 
-    # Capabilities section (GitHub and utilities)
-    output.append("\n# CAPABILITIES")
+    # Capabilities section (task routing, utilities, GitHub)
+    # Trigger-first: lead with the task shape, not the artifact name, so the
+    # match fires while holding a task — inventory-shaped lists don't.
+    output.append("\n# CAPABILITIES — reach for these before hand-rolling")
 
-    # GitHub access section
+    # Task routing: curated skills tier + protocols, triggers pulled live
+    # from SKILL.md frontmatter (see capabilities.py). Best-effort.
+    try:
+        from .capabilities import render_task_routing
+        routing = render_task_routing()
+        if routing:
+            output.append(routing)
+    except Exception:
+        pass
+
+    # Utilities section — trigger-first (`when → name`), rendered by
+    # capabilities.py. Falls back to the legacy import-first lines only if
+    # the module itself fails, so utilities never vanish from boot output.
+    try:
+        from .capabilities import render_utilities
+        output.append(render_utilities(installed_utils))
+    except Exception:
+        if installed_utils:
+            output.append(f"\n## Utilities ({len(installed_utils)})")
+            for name in sorted(installed_utils.keys()):
+                info = installed_utils[name]
+                use_when = info.get("use_when") if isinstance(info, dict) else None
+                line = f"  from muninn_utils import {name}"
+                if use_when:
+                    line += f"  # {use_when}"
+                output.append(line)
+        else:
+            output.append("\n## Utilities")
+            output.append("  None installed (tag memories with 'utility-code' to add)")
+
+    # GitHub access section — environment status, least trigger-shaped, so
+    # it renders after the two routing tables.
     if github_access:
         output.append("\n## GitHub Access")
         if github_access.get('available'):
@@ -1173,20 +1206,6 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
         else:
             output.append("  Status: Not configured")
             output.append("  Note: Set GITHUB_TOKEN or authenticate gh CLI")
-
-    # Utilities section
-    if installed_utils:
-        output.append(f"\n## Utilities ({len(installed_utils)})")
-        for name in sorted(installed_utils.keys()):
-            info = installed_utils[name]
-            use_when = info.get("use_when") if isinstance(info, dict) else None
-            line = f"  from muninn_utils import {name}"
-            if use_when:
-                line += f"  # {use_when}"
-            output.append(line)
-    else:
-        output.append("\n## Utilities")
-        output.append("  None installed (tag memories with 'utility-code' to add)")
 
     # Constellation section (v6.0.0: hub-spoke awareness)
     try:
