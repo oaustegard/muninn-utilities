@@ -12,6 +12,7 @@ and `muninn_utils/` (Python package of session utilities materialized into
 remembering/              Memory subsystem — skill-shaped for backward compat
   SKILL.md                Skill description (mounted under /mnt/skills/user/remembering/)
   scripts/                Core: boot.py, memory.py, turso.py, config.py, hints.py,
+                            capabilities.py (trigger-first boot routing),
                             task.py, spokes.py, result.py, audit.py, state.py, utilities.py
   references/             Field reference, recall vocabulary, remembering-api docs
   tests/                  Hardening tests (mocked Turso + GitHub — no live creds needed)
