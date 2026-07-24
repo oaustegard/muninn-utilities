@@ -1056,6 +1056,38 @@ def recall_between(after: str, before: str, *, search: str = None, query: str = 
 
 
 # @lat: [[memory#Core Operations]]
+def get(memory_id: str, raw: bool = False):
+    """Fetch a single memory by full or partial ID.
+
+    The by-ID complement to recall(): recall() is search-shaped and cannot
+    address a specific memory, which forces callers to run a search and
+    filter for the id (session friction, 2026-07-24 — several wasted calls
+    guessing at a getter that didn't exist). Supports partial-ID prefixes
+    via _resolve_memory_id, same as strengthen()/forget().
+
+    Args:
+        memory_id: Full UUID or unique prefix.
+        raw: Return the plain dict instead of a MemoryResult.
+
+    Returns:
+        MemoryResult (or dict if raw=True), or None if no active memory
+        matches the full id.
+
+    Raises:
+        ValueError: If a partial id matches zero or multiple memories.
+    """
+    memory_id = _resolve_memory_id(memory_id)
+    rows = _exec(
+        "SELECT * FROM memories WHERE id = ? AND deleted_at IS NULL",
+        [memory_id]
+    )
+    if not rows:
+        return None
+    from .turso import _parse_memory_row
+    parsed = _parse_memory_row(rows[0])
+    return parsed if raw else wrap_results([parsed])[0]
+
+
 def forget(memory_id: str) -> bool:
     """Soft-delete a memory. Supports both full and partial UUIDs.
 
