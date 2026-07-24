@@ -2,6 +2,18 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.16.0] - 2026-07-24
+
+### Added
+
+- `scripts/memory.py`: `get(memory_id, raw=False)` — fetch a single memory
+  by full or partial ID. The by-ID complement to the search-shaped
+  `recall()`; before this, addressing a specific memory (e.g. a reminder id
+  handed over in a prompt) required a search plus client-side filtering, and
+  a 2026-07-24 session burned several calls guessing at getters that did not
+  exist (`get_memory`, `turso.execute`). Same partial-prefix resolution as
+  `strengthen()`/`forget()`; returns `None` for a missing id.
+
 ## [5.15.0] - 2026-07-18
 
 Trigger-first capability routing in boot output. Oskar kept having to nudge
