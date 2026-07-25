@@ -24,9 +24,13 @@ costs:
 A remote MCP fixes all four: one deployment, OAuth'd connector, no credentials in the
 session, and memory available anywhere the connector is enabled.
 
-It does **not** fix — and must not break — the local power path: `_exec()` raw SQL,
-corpus-wide analysis (`memory_tfidf`, `satisfaction_skew`, `correction_gate`), and the
-`muninn_utils` that talk to GitHub, Bluesky and WhiteWind.
+It does **not** fix — and must not break — the local power path: `_exec()` raw SQL and
+corpus analysis with native dependencies (`memory_tfidf`'s numpy/scikit-learn).
+
+**§7 extends this to a second track:** proxying the third-party APIs (GitHub, Bluesky,
+WhiteWind, Strava) through the Worker too, so credentials leave the session entirely and
+the Claude.ai project-knowledge env files stop being load-bearing. That track is
+stateless, cheaper, and deliberately decoupled from the staged memory migration.
 
 ---
 
@@ -48,15 +52,18 @@ Everything whose only dependency is Turso and whose result is text.
 
 ### Stays skill-shaped — `remembering/` + `muninn_utils/`
 
-Everything that needs local execution, local credentials, or a Python object.
+Everything that needs local execution, native libraries, or a Python object.
 
 - **`_exec()` raw SQL** — the ad-hoc analysis escape hatch. Irreplaceable by a fixed tool set.
-- **`muninn_utils/*`** — every one of them needs a non-Turso network identity (GitHub,
-  Bluesky, WhiteWind) or writes local files.
 - **Task discipline** — `task()`, `recall_gate` are in-session control-flow objects. A
   context manager cannot live behind JSON-RPC. Persistence goes over MCP; the object stays local.
 - **Boot's environment prelude** — `.pth` setup, `muninn_utils` materialization, env fallback persist.
-- **Corpus analysis** — `memory_tfidf`, `satisfaction_skew`, `correction_gate`, export/import, migrations.
+- **Native-dependency analysis** — `memory_tfidf` (numpy + scikit-learn),
+  `search_reindex` (subprocess + tempfile), `skill_lint` (yaml + local files),
+  `zeitgeist_delta` (pathlib), export/import, migrations.
+
+Note this list is *shorter than it first appears* — see §7. The credential-bearing
+utilities do not belong here, because the credentials themselves move to the Worker.
 
 ### Becomes cron — `muninnd/` Worker
 
@@ -263,7 +270,123 @@ Muninn-specific:
 
 ---
 
-## 7. Decisions needed
+## 7. Second track — the Worker as Muninn's identity boundary
+
+The plan above moves *memory* off the session. The larger prize is moving **credentials**
+off the session: proxy the third-party APIs through the Worker too, so the Claude.ai
+project-knowledge env files stop being load-bearing.
+
+### The rationale is partly defensive, and that argument holds
+
+What a session is allowed to do — mount project files, reach the network from bash, receive
+injected env vars, mount skills — has varied by surface (claude.ai vs Code vs Cowork) and
+changed without notice. Custom MCP connectors are the most stable, most documented
+extension point on offer, and consolidating on them replaces N fragile integration points
+with one.
+
+But MCP is not immune to the same churn: connector availability itself differs by surface
+and plan, and OAuth dynamic client registration has had its own turbulence. **The real
+insurance is not "pick MCP", it is "make transport a detail."** Sage already does this —
+`mcp/src/tools.ts` is shared by both the HTTP Worker (`index.ts`) and a stdio server
+(`stdio.ts`), one implementation behind two doors. Muninn should copy that structure
+verbatim. Then "which connection method is allowed this month" is a deployment choice,
+not a rewrite.
+
+### The port is cheap, and the code already says so
+
+Every credential-bearing utility is `urllib.request` + `json` over HTTPS. There is **no
+filesystem access in any of them** — every `open(` in `blog_publish`, `bsky_card`,
+`whtwnd` and `perch_publish` is `urllib.request.urlopen`. They are pure HTTP composition,
+which maps onto Worker `fetch()` directly.
+
+`bsky_card` is already broker-shaped: its manifest records that it takes auth as an
+`auth` dict (`handle`, `did`, `access_jwt`) and reads no `BSKY_*` env vars itself. That
+is the target shape for everything.
+
+The whole credential inventory is five identities: `GH_TOKEN`/`GITHUB_TOKEN`,
+`MUNINN_BSKY_HANDLE`/`MUNINN_BSKY_APP_PASSWORD` (+ `BSKY_PDS`),
+`STRAVA_CLIENT_ID`/`STRAVA_CLIENT_SECRET`, `CF_ACCOUNT_ID`, and `TURSO_*`.
+
+**Tier 1 — port as-is.** `gh_status`, `github_rw`, `perch_triage`, `whtwnd`, `strava`,
+the `bsky_card` post path, `issue_close` (minus `flowing`). Pure `urllib` → `fetch`.
+
+**Tier 2 — needs a decision.** `perch_publish` (Python `markdown` → `markdown-it`),
+`bsky_moderation` (`ThreadPoolExecutor` → `Promise.all`), and `blog_publish`, which is
+built on `flowing`'s DAG.
+
+> `flowing` should not be ported. Its value — checkpoint resume, detached side-effects
+> that don't block the main pipeline — exists because an *agent* drives the steps across
+> tool calls. Inside one Worker invocation those are just function calls, and Cloudflare
+> gives you the same primitives natively: `ctx.waitUntil()` is the detached leg, and
+> **Cloudflare Workflows** is durable multi-step execution with resume — near 1:1 with
+> `flowing`'s model. `blog_publish`'s wait-for-GH-Pages-deploy step is the case that
+> proves it: polling for minutes fits a Workflow step and does not fit a plain Worker
+> request. `flowing` stays local for agent-driven pipelines; it is not the Worker's model.
+
+**Tier 3 — stays local.** The native-dependency set in §2, plus the pure-function corpus
+analyzers (`correction_gate`, `satisfaction_skew`, `recall_sufficiency`, `boot_ledger`) —
+these need no credentials at all, so proxying buys them nothing.
+
+### The new engineering problem: tool budget
+
+§2 argued memory must collapse to 8–12 tools. Adding GitHub + Bluesky + WhiteWind +
+Strava on top lands at 25–30, and every schema is re-sent in every conversation on the
+connector. Two mitigations, and they compose:
+
+1. **Multiple connectors, not one server.** Split by identity tier —
+   `muninn-memory` (always on), `muninn-publish` (bsky/whtwnd/blog), `muninn-github`.
+   Same repo, same shared `tools.ts` core, separate endpoints registered as separate
+   connectors and enabled per project. Separate tool budgets, and — see below — separate
+   blast radii.
+2. **A dispatcher for the long tail.** `muninn_utils/use_when.json` already exists and is
+   exactly the routing metadata this needs: two tools (`list_utilities`, `call_utility`)
+   expose N utilities behind one schema. Keep first-class tools for the hot path where
+   the model needs to see arguments; dispatch the tail.
+
+### The new risk: credential concentration
+
+This must be stated plainly, because it is the real cost of the idea.
+
+Today credentials are spread across environments and scoped per surface; leaking one
+project-knowledge file is bad but bounded. Afterwards, one Worker holds GitHub write,
+a Bluesky identity, WhiteWind, Strava and Turso — behind **one password on a public
+`workers.dev` login page**. That is a material concentration of blast radius, and it is
+strictly worse than today on that axis.
+
+Mitigations, in order of value:
+
+- **Split Workers by identity tier** (above). A compromise of the memory connector should
+  not hand over publishing rights. This is the strongest argument for the split.
+- **Cloudflare Access** in front of the Workers, rather than relying on the password page alone.
+- **Fine-grained, per-repo GitHub PATs** rather than the classic coarse `ghp_` token the
+  manifests currently describe as "share-by-default is intentional". That default was
+  reasonable when the token lived in one session; it is not reasonable in a public endpoint.
+- **Rotate on the migration.** Every credential that has ever sat in a project-knowledge
+  file should be considered spent.
+
+One genuine security *gain*, worth taking deliberately: a proxy gives a server-side audit
+log. Today when Muninn posts to Bluesky or writes to a repo there is no record beyond the
+target itself. Every proxied call writing a Turso row yields a ledger of what the agent
+did with your identity — an instinct `boot_ledger` already has.
+
+### This track does not need blue-green
+
+Worth being explicit, because it is the main structural difference from §5. The staged,
+provenance-gated migration exists because *memory writes are stateful* — rows persist,
+order matters, mistakes compound.
+
+Proxying `gh_status` through the Worker is **stateless**. There is nothing to roll back;
+the call either worked or it didn't, and the side effects live in GitHub or Bluesky where
+they were always going to live. So this track moves per-utility, fast, with rollback =
+"call the Python again."
+
+**Do not couple the two tracks.** The proxy work is cheaper and lower-risk than the memory
+migration, and gating it behind stage 3 of §5 would waste months. Run them in parallel;
+the only shared dependency is the OAuth/transport scaffolding in stage 1.
+
+---
+
+## 8. Decisions needed
 
 1. **Provenance mechanism** — `source` column vs. reserved tag. (Recommend: column.)
 2. **Auth** — reuse Sage's password-page OAuth, or a static bearer token? claude.ai
@@ -277,3 +400,20 @@ Muninn-specific:
 6. **Does `boot` belong as an MCP tool or an MCP resource?** Connectors do not reliably
    auto-read resources, so a tool called by project instructions is the pragmatic answer
    — but it means boot stays an explicit call, not something the client just has.
+
+On the proxy track (§7):
+
+7. **How many connectors?** One server, or split by identity tier
+   (`muninn-memory` / `muninn-publish` / `muninn-github`). (Recommend: split — it solves
+   the tool budget and the blast radius with the same move.)
+8. **Dispatcher or first-class tools for the long tail** — `use_when.json` can back a
+   `list_utilities` + `call_utility` pair. (Recommend: both — first-class for the hot
+   path, dispatch the tail.)
+9. **`blog_publish`: Cloudflare Workflows, or leave it local?** It is the only utility
+   whose shape genuinely needs durable multi-step execution. Leaving it local is a
+   legitimate answer; it is also the one that most wants a Workflow.
+10. **Credential rotation and scope.** Every secret that has lived in a project-knowledge
+    file should be rotated during this migration, and the coarse `GH_TOKEN` shared across
+    `blog_publish`/`issue_close`/`perch_triage`/`verify_patch` should become fine-grained
+    per-repo PATs before it sits behind a public endpoint.
+11. **Cloudflare Access in front of the Workers, or password page only?**
