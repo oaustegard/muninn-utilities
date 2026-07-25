@@ -86,6 +86,9 @@ e.g. one `muninn_config` tool with an `op` parameter rather than four. Anything 
 doesn't earn its schema stays in Python. This constraint is a feature: it forces the
 seam above to be drawn honestly.
 
+Collapsing the *count* is only half of it; the *width* of each schema matters as much.
+See §8 — the resource layer is what keeps these schemas thin.
+
 ---
 
 ## 3. What the port actually costs (smaller than it looks)
@@ -386,7 +389,93 @@ the only shared dependency is the OAuth/transport scaffolding in stage 1.
 
 ---
 
-## 8. Decisions needed
+## 8. Progressive disclosure — resources instead of schemas
+
+Tool *count* is the obvious budget. Tool *width* is the bigger one, and it is where
+progressive disclosure pays.
+
+`recall()` takes **19 parameters** (`search`, `query`, `n`, `tags`, `type`, `conf`,
+`tag_mode`, `strict`, `session_id`, `auto_strengthen`, `raw`, `expansion_threshold`,
+`fetch_all`, `since`, `until`, `tags_all`, `tags_any`, `episodic`, `exploration`).
+Rendered as JSON Schema with honest descriptions that is roughly 2k tokens **for one
+tool**. Ten tools at that width consume the entire budget before a conversation starts.
+
+### The layering
+
+**Layer 0 — always in context.** A deliberately small tool set with deliberately narrow
+schemas. `recall` exposes the four arguments that account for nearly all calls
+(`query`, `n`, `tags`, `type`) plus an opaque `filters` object; the other fifteen
+parameters are documented in a resource, not in the schema. 19 → 5.
+
+**Layer 1 — resources, read on demand.**
+
+| URI | Content | Already exists as |
+|---|---|---|
+| `muninn://reference/recall` | The full parameter set, semantics, edge cases | `references/CLAUDE.md`, `references/advanced-operations.md` |
+| `muninn://reference/types` | Memory types + per-type defaults | `SKILL.md` type table |
+| `muninn://reference/vocabulary` | Recall vocabulary / tag conventions | `references/` |
+| `muninn://utilities` | Routing index — which utility for which task shape | `muninn_utils/use_when.json` |
+| `muninn://utilities/{name}` | Per-utility goal, inputs, outputs, errors, example | `manifests/*/*.v0.4.json` → `actions[].docs` |
+| `muninn://boot` | The composed boot payload | `_format_boot_output()` |
+
+**Layer 2 — the dispatcher.** `call_utility(name, args)` carries a generic schema; its
+arguments are described by `muninn://utilities/{name}`, fetched only when that utility is
+actually wanted.
+
+### This is mostly serialization, not new work
+
+The deferred layer already exists, in three places:
+
+- **Manifest v0.4 `actions[].docs`** is already a deferred tool schema in all but name —
+  `goal`, `inputs_brief`, `outputs_brief`, `errors_brief`, `example`. That block was
+  written for a human-facing install manifest and happens to be exactly the right payload.
+- **`use_when.json`** is already the routing index.
+- **`references/` (~33KB)** is already the on-demand reference layer, and `SKILL.md`
+  already opens with "Basic patterns are in project instructions. This skill covers
+  advanced features" — Muninn *already practises PD in skill-land*. The MCP design should
+  mirror the structure that exists rather than invent a second one.
+
+### Four caveats, because PD has real failure modes
+
+1. **PD trades a fixed cost for a variable cost plus a round trip.** That is a good trade
+   when N is large and usage is sparse. It is a *bad* trade on the hot path: `recall` and
+   `remember` are called in nearly every conversation, and making them require a resource
+   read first is a regression wearing PD's clothes. Hot path keeps real, if narrow,
+   schemas. Dispatch only the tail.
+
+2. **Resource auto-read is not guaranteed, and varies by exactly the surfaces §7 is
+   worried about.** In Claude Code it works well — the harness exposes generic
+   `ListMcpResourcesTool` / `ReadMcpResourceTool`, so *two* schemas cover every resource
+   on every connected server, which is the whole PD win made concrete. claude.ai
+   connectors have historically surfaced resources as user-attachable content rather than
+   something the model reads autonomously. Since cross-surface robustness is the entire
+   argument for §7, the action path must not depend on resource support.
+   **Mitigation — the same one as §7: same content, two doors.** Ship a `muninn_docs(topic)`
+   tool with a three-line schema returning exactly what the resource returns. Clients with
+   native resource support use the resource; clients without use the tool. One
+   implementation.
+
+3. **A resource nobody reads is dead weight.** The pointer has to live somewhere
+   always-in-context, which means one sentence inside each thin tool description
+   ("full parameter list: `muninn://reference/recall`"). That sentence is the one piece
+   of schema text that cannot be economised, and forgetting it is the classic PD failure:
+   immaculate deferred documentation that never gets loaded.
+
+4. **Discovery round-trips compound.** `list` → `read` → `call` is three round trips for a
+   tail utility, against one Python import today. Fine for rare operations; another reason
+   the hot path stays wide.
+
+### Two protocol options considered and not recommended
+
+- **`notifications/tools/list_changed`** allows a server to advertise a minimal tool set
+  and expand it contextually. Client support is uneven and mid-conversation tool churn is
+  disruptive. Available if the budget genuinely cannot be met otherwise; not a starting point.
+- **MCP prompts** as boot's home. Prompts are *user*-invoked, so boot could not fire
+  automatically — which is the property boot most needs. Tool + resource is the right pair.
+
+---
+
+## 9. Decisions needed
 
 1. **Provenance mechanism** — `source` column vs. reserved tag. (Recommend: column.)
 2. **Auth** — reuse Sage's password-page OAuth, or a static bearer token? claude.ai
@@ -397,9 +486,10 @@ the only shared dependency is the OAuth/transport scaffolding in stage 1.
    deploy cadence, and the cron half should never be able to break the interactive half.)
 4. **Tool collapse** — which 8–12 tools. Needs a concrete list before implementation.
 5. **`_exec()` fate** at stage 5 (§5).
-6. **Does `boot` belong as an MCP tool or an MCP resource?** Connectors do not reliably
-   auto-read resources, so a tool called by project instructions is the pragmatic answer
-   — but it means boot stays an explicit call, not something the client just has.
+6. **Does `boot` belong as an MCP tool or an MCP resource?** *Resolved by §8: both.*
+   Expose `muninn://boot` for clients that attach resources and a `boot` tool for those
+   that don't — same function, two doors. The tool is what project instructions call, so
+   boot never depends on client resource behaviour.
 
 On the proxy track (§7):
 
@@ -417,3 +507,16 @@ On the proxy track (§7):
     `blog_publish`/`issue_close`/`perch_triage`/`verify_patch` should become fine-grained
     per-repo PATs before it sits behind a public endpoint.
 11. **Cloudflare Access in front of the Workers, or password page only?**
+
+On progressive disclosure (§8):
+
+12. **Which four `recall` arguments are first-class**, and does the rest go in an opaque
+    `filters` object or stay unavailable over MCP entirely? Needs a look at real call
+    frequency, not intuition.
+13. **Are the manifests the resource payload, or a build input?** `actions[].docs` is the
+    right content, but manifests are versioned per-utility (v0.3 and v0.4 both present).
+    Serving them directly couples the resource layer to manifest versioning; generating
+    resources from them at build time decouples it.
+14. **Does the `muninn_docs` fallback tool ship from day one**, or only if claude.ai's
+    resource support proves inadequate? (Recommend: day one — it is a three-line schema
+    and it is the thing that makes the design surface-independent.)
