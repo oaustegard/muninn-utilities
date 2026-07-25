@@ -97,5 +97,4 @@ as examples. See the flowing Diving Deeper topic for one worked through in full.
 | `remind` | Reminders with due dates, recurrence, snooze, and a boot-surfaced nag mode. |
 | `task_policy` | Load and schedule autonomous perch tasks. |
 | `verify_patch` | Semi-formal patch verification with outcome tracking. |
-| `whtwnd` | Publish to a WhiteWind blog over ATProto. |
 | `zeitgeist_delta` | Semantic delta check to deduplicate before storage. |

@@ -32,7 +32,6 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   satisfaction_skew.py    Measure failure:success storage skew — correction vs satisfaction-analog ratio, trend, shapes (#85)
   task_policy.py          Task routing policy
   verify_patch.py         Patch verification utilities
-  whtwnd.py               WhiteWind (AT-proto blog) posting
   zeitgeist_delta.py      Zeitgeist delta computation
   use_when.json           Routing hints for utility selection
   tests/                  muninn_utils unit tests

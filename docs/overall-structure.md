@@ -105,7 +105,7 @@ Muninn-specific utility.
 - `snapshot/` — pull, filter, cluster, compose_instruction, kb, build
   (one section; the pipeline is the unit)
 - **Example applications (catalog):** the 13 `muninn_utils` orchestrators
-  (blog_publish, bsky_card, perch_*, whtwnd, remind, verify_patch,
+  (blog_publish, bsky_card, perch_*, remind, verify_patch,
   zeitgeist_delta, …) listed as a single catalog with one-line purposes — they
   are Muninn-specific *instances* of the flowing pattern, not core API for a
   borrower. One is documented in full in the flowing Diving Deeper topic.
