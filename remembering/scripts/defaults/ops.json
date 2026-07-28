@@ -1,6 +1,6 @@
 {
   "blog-post-platform": {
-    "value": "\"blog post\" = whtwnd.com. When Oskar says write/post a blog post, publish directly to WhiteWind via whtwnd utility without asking. Use whtwnd_auth + whtwnd_post pattern.",
+    "value": "\"blog post\" = austegard.com/blog/ or muninn.austegard.com/blog/ via GitHub Pages. Use: from muninn_utils.blog_publish import publish_and_announce. WhiteWind (whtwnd.com) is DEPRECATED as a publishing target — all 37 posts migrated to GitHub Pages 2026-03-18; do NOT publish there. BLUESKY: only post to Bluesky when Oskar explicitly gives permission.",
     "category": "ops",
     "boot_load": 1
   },

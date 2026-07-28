@@ -3,7 +3,7 @@
 Source-of-truth for everything Muninn-flavored that runs in a session:
 
 - `remembering/` — Muninn's memory subsystem (Turso-backed, FTS5, decision traces, autonomous curation). Skill-shaped (`SKILL.md`, `scripts/`, `references/`, `tests/`) so it can still be mounted under `/mnt/skills/user/remembering/` for backward compatibility.
-- `muninn_utils/` — Python package of utilities that boot materializes into `~/muninn_utils/`. Migrated from Turso `utility-code` memories per memory `0d63ed4f`: `blog_publish`, `bsky_card`, `bsky_limit`, `issue_close`, `memory_tfidf`, `perch_publish`, `perch_triage`, `remind`, `verify_patch`, `whtwnd`, `zeitgeist_delta`.
+- `muninn_utils/` — Python package of utilities that boot materializes into `~/muninn_utils/`. Migrated from Turso `utility-code` memories per memory `0d63ed4f`: `blog_publish`, `bsky_card`, `bsky_limit`, `issue_close`, `memory_tfidf`, `perch_publish`, `perch_triage`, `remind`, `verify_patch`, `zeitgeist_delta`. (`whtwnd` was also migrated here, then retired 2026-07-25 with the WhiteWind publishing target.)
 
 Both used to live elsewhere — `remembering/` in
 [`oaustegard/claude-skills`](https://github.com/oaustegard/claude-skills) as a
@@ -31,7 +31,6 @@ muninn-utilities/
 │   ├── perch_triage.py
 │   ├── remind.py
 │   ├── verify_patch.py
-│   ├── whtwnd.py
 │   ├── zeitgeist_delta.py
 │   └── tests/
 └── README.md
