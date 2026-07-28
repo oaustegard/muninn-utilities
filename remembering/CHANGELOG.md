@@ -2,6 +2,32 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.17.0] - 2026-07-25
+
+### Changed
+
+- `scripts/defaults/ops.json`: the `blog-post-platform` default still read
+  `"blog post" = whtwnd.com. When Oskar says write/post a blog post, publish
+  directly to WhiteWind via whtwnd utility without asking.` — a `boot_load: 1`
+  entry pointing at a target retired on 2026-03-18, when all 37 posts migrated
+  to GitHub Pages. The live Turso value had been corrected long ago, but this
+  checked-in fallback would have re-seeded the stale routing into any fresh or
+  restored database. Now matches the live value: GitHub Pages via
+  `blog_publish.publish_and_announce`, WhiteWind marked deprecated, and the
+  standing rule that Bluesky posts need explicit permission.
+
+### Removed
+
+- `muninn_utils/whtwnd.py` — WhiteWind publishing client (`whtwnd_auth`,
+  `whtwnd_post`, `whtwnd_update`, `whtwnd_delete`, `whtwnd_list`,
+  `whtwnd_upload_image`). The platform has not been a publishing target since
+  2026-03-18; the module was live code for a dead destination. Its `use_when`
+  routing hint is removed with it. The install manifests under
+  `manifests/whtwnd/` are deliberately **kept** and the registry entry marked
+  `deprecated` rather than deleted, so the `manifest_url` advertised in
+  `.well-known/install-manifests.json` keeps resolving for third parties that
+  already indexed it; `REVOKE.md` records the retirement.
+
 ## [5.16.0] - 2026-07-24
 
 ### Added

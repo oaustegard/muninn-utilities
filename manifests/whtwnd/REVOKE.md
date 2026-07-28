@@ -1,5 +1,14 @@
 # Revoking muninn-whtwnd
 
+**RETIRED 2026-07-25.** WhiteWind stopped being a publishing target on
+2026-03-18, when all 37 posts migrated to GitHub Pages. `muninn_utils/whtwnd.py`
+has now been removed from this repo and the registry entry in
+`.well-known/install-manifests.json` is marked `deprecated`. The manifests in this
+directory are retained so the published `manifest_url` keeps resolving for anyone
+who already indexed it; they no longer describe installable code. Step 3 below is
+therefore already done upstream. Steps 1 and 2 still apply to anyone who installed
+the tool and published entries with it. Replacement: `muninn-blog-publish`.
+
 This tool publishes blog entries to the user's PDS as `com.whtwnd.blog.entry`
 records that federate to the WhiteWind AppView. Revocation has two surfaces
 — credential rotation (stops future entries) and content removal (already-
