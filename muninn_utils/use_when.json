@@ -17,4 +17,3 @@
   "boot_ledger": "Auditing or pruning the boot payload: which boot-loaded triggers/ops/voice-signature entries cost the most tokens per unit of actual use, what to demote to reference-only, whether a collapse dropped boot cost. Ranks every boot_load=1 config entry by exact token cost vs a memory-corpus fire-rate proxy; ships an opt-in config_get fire counter (MUNINN_INSTRUMENT_FIRES) for exact go-forward data. Companion to correction_gate (one guards a write, this measures the whole payload).",
   "bsky_moderation": "Moderating a Bluesky thread's repliers in bulk: extract DIDs+text of everyone who replied to a post (extract_thread_repliers, context-lean), classify them, then mute/block the matching accounts (moderate, bounded-parallel, dry_run-default). Two-stage: extraction + authed action, classification is the caller's job."
 }
-
