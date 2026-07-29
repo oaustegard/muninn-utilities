@@ -504,16 +504,19 @@ def _ensure_write_provenance_schema():
         try:
             _exec(f"ALTER TABLE {table} ADD COLUMN source TEXT")
             added = True
-        except Exception:
-            pass  # Column already exists
+        except Exception:  # noqa: BLE001, S110 - the expected steady-state path
+            # After the first boot this ALTER fails every time, by design. There is
+            # nothing to log and nothing to do: the column already exists.
+            pass
         if added:
             try:
                 _exec(
                     f"UPDATE {table} SET source = ? WHERE source IS NULL",
                     [PRE_PROVENANCE],
                 )
-            except Exception:
-                pass  # Backfill is best-effort; the migration script can redo it
+            except Exception:  # noqa: BLE001, S110 - migration script can redo it
+                # Backfill is best-effort; boot must never fail on it.
+                pass
 
 def _ensure_is_superseded_schema():
     """Idempotently ensure the is_superseded column, its index, and initial
