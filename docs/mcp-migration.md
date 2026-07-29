@@ -222,6 +222,27 @@ one — `json_each` is *better* SQL than a `LIKE` over serialized JSON, and that
 why it is a bug. The porting rule has to be transcribe-don't-improve, or blue and green
 drift at every point where green's author knew better.
 
+**The harness's first live run found a bug in blue, not green.** 64 queries, 56 matched,
+and the single undeclared mismatch — `recall('bluesky', n=1)` — turned out to be blue
+answering the same question differently in different processes: three distinct ids across
+six `PYTHONHASHSEED` values. Any query returning fewer than `expansion_threshold` rows runs
+the multi-stage expansion, whose three loops iterate **sets of strings** and break early on
+a `>= n * 2` budget. At `n=1` the budget is 2 and `results` already holds 1, so the first
+tag visited decided the whole answer — and set iteration order over strings is randomised
+per process by PEP 456. Fixed by sorting the three sets before iterating; blue now returns
+the same id across all six seeds.
+
+Two things follow, and the second is the more important one:
+
+1. **You cannot diff against an oracle that disagrees with itself.** Blue being
+   deterministic is a precondition for the parity gate meaning anything, not a nicety.
+2. **§3's central claim has a boundary.** "The ranking is server-side SQL, so the port is
+   tractable" is true of `_fts5_search` — green's generated SQL is byte-equal to blue's,
+   verified across 7 query shapes. It stops being true at `recall()`, where Python sits
+   *above* the SQL and is order-dependent. Byte-equal SQL does not imply equal results.
+   The expansion layer is the part of the read path that still has to be ported carefully
+   rather than transcribed.
+
 Note also that blue's `recall` is **not side-effect-free**: it fires `_update_access_tracking`
 in a background thread, which mutates `access_count`, which feeds `episodic` ranking. A
 read-only green cannot reproduce that, so the harness compares an access path whose inputs

@@ -650,8 +650,24 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
                     pass
 
             # Stage 3: Search by Stage 1 tags (with BOOST_STAGE1_TAG)
+            #
+            # sorted(), not the bare set. Each of these three loops breaks early
+            # on a budget (`>= n * 2`), so WHICH tags get visited decides the
+            # answer — and set iteration order over strings is randomised per
+            # process by PEP 456 hash randomisation. Before this, recall() could
+            # return a different memory for the same query in a different
+            # process. Measured: recall('bluesky', n=1) returned three different
+            # ids across six PYTHONHASHSEED values, because at n=1 the budget is
+            # 2, `results` already holds 1, and the FIRST tag visited therefore
+            # decided the entire answer.
+            #
+            # Found by the muninn-mcp parity harness, which flagged it as a green
+            # regression; blue was the non-deterministic side. Sorting costs
+            # nothing here (these sets are tens of tags at most) and it is what
+            # makes blue a legitimate reference implementation to port against —
+            # you cannot diff against an oracle that disagrees with itself.
             expansion_results = []
-            for tag in stage1_tags:
+            for tag in sorted(stage1_tags):
                 if len(results) + len(expansion_results) >= n * 2:
                     break
                 try:
@@ -669,7 +685,9 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
                         seen_ids.add(tr['id'])
 
             # Stage 3b: Search by co-occurrence expanded tags (with BOOST_COOCCUR)
-            for tag in cooccur_tags:
+            # sorted() for the same reason as stage 3 — same early break, same
+            # per-process randomisation.
+            for tag in sorted(cooccur_tags):
                 if len(results) + len(expansion_results) >= n * 2:
                     break
                 try:
@@ -695,7 +713,8 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
             hop2_tags -= stage1_tags
             hop2_tags -= cooccur_tags
 
-            for tag in hop2_tags:
+            # sorted() for the same reason as stage 3.
+            for tag in sorted(hop2_tags):
                 if len(results) + len(expansion_results) >= n * 2:
                     break
                 try:
