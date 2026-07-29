@@ -482,6 +482,39 @@ def _format_telemetry(marks: list) -> str:
 
 
 # @lat: [[memory#Boot Sequence]]
+
+def _ensure_write_provenance_schema():
+    """Idempotently ensure the `source` column exists on memories and config.
+
+    Stage 0 of the remote-MCP migration (docs/mcp-migration.md §5). Called from
+    boot() alongside _ensure_is_superseded_schema() so a fresh database, a skill
+    upgrade, and a second writer coming online all converge without anyone
+    remembering to run the migration by hand.
+
+    Backfill of pre-existing rows runs ONLY when the ALTER just succeeded. That
+    restraint is the point: the Stage 0 bake gate is "100% of new rows carry a
+    non-null source for one week", which is only measurable if boot is not
+    quietly papering over NULLs written by a straggler on older code. Detecting
+    them is the job; see migrations/add_write_provenance_v1.py --status.
+    """
+    from .provenance import PRE_PROVENANCE
+
+    for table in ("memories", "config"):
+        added = False
+        try:
+            _exec(f"ALTER TABLE {table} ADD COLUMN source TEXT")
+            added = True
+        except Exception:
+            pass  # Column already exists
+        if added:
+            try:
+                _exec(
+                    f"UPDATE {table} SET source = ? WHERE source IS NULL",
+                    [PRE_PROVENANCE],
+                )
+            except Exception:
+                pass  # Backfill is best-effort; the migration script can redo it
+
 def _ensure_is_superseded_schema():
     """Idempotently ensure the is_superseded column, its index, and initial
     backfill exist on the memories table.
@@ -661,6 +694,10 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     # doesn't break it.
     try:
         _ensure_is_superseded_schema()
+    except Exception:
+        pass
+    try:
+        _ensure_write_provenance_schema()
     except Exception:
         pass
     _mark("schema_ensure")

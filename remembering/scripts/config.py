@@ -15,6 +15,7 @@ import os
 from datetime import datetime, UTC
 
 from .turso import _exec
+from .provenance import write_source
 from .aliases import accept_aliases
 
 
@@ -115,9 +116,12 @@ def config_set(key: str, value: str, category: str, *,
 
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     _exec(
-        """INSERT OR REPLACE INTO config (key, value, category, updated_at, char_limit, read_only, boot_load)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        [key, value, category, now, char_limit, 1 if read_only else 0, boot_load_val]
+        """INSERT OR REPLACE INTO config (key, value, category, updated_at, char_limit, read_only, boot_load, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        # INSERT OR REPLACE rewrites the whole row, so an unstamped write here
+        # would null out a source the previous writer had set. Always stamp.
+        [key, value, category, now, char_limit, 1 if read_only else 0, boot_load_val,
+         write_source()]
     )
 
 

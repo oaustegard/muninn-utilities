@@ -15,6 +15,8 @@ v1.0.0: Initial implementation for #332 — structural enforcement for Muninn
 import json
 import sys
 import time
+
+from .provenance import write_source
 from contextlib import contextmanager
 from datetime import datetime, UTC
 
@@ -52,9 +54,9 @@ def _save_task(name: str, task_type, steps: dict, created: float) -> None:
         })
         key = _task_key(name)
         _turso_exec(
-            """INSERT OR REPLACE INTO config (key, value, category, updated_at)
-               VALUES (?, ?, ?, ?)""",
-            [key, value, TASK_STATE_CATEGORY, now]
+            """INSERT OR REPLACE INTO config (key, value, category, updated_at, source)
+               VALUES (?, ?, ?, ?, ?)""",
+            [key, value, TASK_STATE_CATEGORY, now, write_source()]
         )
     except Exception:
         pass  # Persistence is best-effort; don't fail task operations

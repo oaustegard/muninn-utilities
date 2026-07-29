@@ -23,6 +23,7 @@ import warnings
 from datetime import datetime, UTC
 
 from . import state
+from .provenance import write_source
 from .state import TYPES, get_session_id
 from .turso import (
     _exec, _exec_batch, _fts5_search, _retry_with_backoff,
@@ -117,11 +118,11 @@ def _write_memory(mem_id: str, summary: str, type: str, now: str, conf: float,
     clean_refs = [r for r in (refs or []) if r is not None]
     _exec(
         """INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
-           session_id, created_at, updated_at, valid_from, access_count, last_accessed)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
+           session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)""",
         [mem_id, type, now, summary, conf,
          json.dumps(tags or []), json.dumps(clean_refs),
-         priority, session_id, now, now, valid_from]
+         priority, session_id, now, now, valid_from, write_source()]
     )
 
     # NOTE: previous versions auto-flagged referenced memories is_superseded=1 here.
@@ -1274,11 +1275,11 @@ def supersede(original_id: str, summary: str, type: str, *,
         ("UPDATE memories SET deleted_at = ?, is_superseded = 1 WHERE id = ?", [now, original_id]),
         # Insert new memory
         ("""INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
-               session_id, created_at, updated_at, valid_from, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
+               session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)""",
          [new_id, type, now, summary, conf or 0.8,
           json.dumps(tags or []), json.dumps([original_id]), priority,
-          session_id, now, now, now])
+          session_id, now, now, now, write_source()])
     ])
 
     # Update recall-triggers
@@ -1815,11 +1816,11 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
 
         statements.append((
             """INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
-               session_id, created_at, updated_at, valid_from, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
+               session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)""",
             [mem_id, mem_type, now, summary, conf,
              json.dumps(item_tags or []), json.dumps([r for r in (refs or []) if r is not None]),
-             priority, session_id, now, now, valid_from]
+             priority, session_id, now, now, valid_from, write_source()]
         ))
         # Issue #15: wrap in MemoryWriteId for consistency with remember()/supersede().
         mem_ids.append(MemoryWriteId(mem_id))
