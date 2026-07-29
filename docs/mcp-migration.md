@@ -4,7 +4,10 @@ Design + migration plan for moving the memory backend out of the session and int
 deployed Worker, on the Sage pattern (`oaustegard/sage`, `mcp/`), while keeping the
 genuinely-local half skill-shaped.
 
-Status: **proposal**. Nothing here is built yet.
+Status: **in progress**. Stage 0 shipped (#98 — `remembering/scripts/provenance.py`); Stage 1
+is being built in [`oaustegard/muninn-mcp`](https://github.com/oaustegard/muninn-mcp).
+The design below is unchanged from the original proposal except where a stage records
+what actually happened.
 
 ---
 
@@ -175,6 +178,13 @@ convention. A column is better: tags are user-visible and pollute recall.
 - Gate: 100% of new rows carry a non-null `source` for one week.
 - Rollback: drop the column. Nothing reads it yet.
 
+**Shipped** (#98). A column, as recommended. Two details worth carrying forward: the stamp
+is `<writer>@<version>` and is overridable by `MUNINN_WRITE_SOURCE`, so when the Python is
+run *behind* the Worker it stamps correctly with no second code path; and pre-migration
+rows are backfilled to the sentinel `skill@pre-provenance` rather than to a real version,
+because asserting a version nobody can verify would make the cutover moment unqueryable —
+which is the one thing the column exists to preserve.
+
 ### Stage 1 — Green built read-only, against a Turso branch
 
 `turso db create muninn-green --from-db muninn`. Green deploys, OAuth works, and **every
@@ -190,6 +200,33 @@ That file is close to copy-paste.
   id-order on ranked recalls. This harness is the deliverable of this stage, more than
   the Worker is.
 - Rollback: delete the branch DB.
+
+**In progress.** `muninn-mcp` #1 landed the scaffold and a read-only `recall`. Reviewing
+that port against `turso.py` turned up four divergences, and the shape of them is the
+lesson worth recording — *every one is silent*. None throws; each changes which memories
+come back:
+
+| | Blue (`_fts5_search`) | Green as merged | Effect |
+|---|---|---|---|
+| 1 | `AND m.is_superseded = 0` | absent | green surfaces superseded memories blue never shows |
+| 2 | `m.confidence >= ?` | `COALESCE(m.confidence, 0.5) >= ?` | NULL-confidence rows pass green's filter, fail blue's |
+| 3 | `m.tags LIKE ? ESCAPE '\'` | `EXISTS (SELECT 1 FROM json_each(...))` | different SQL, different edge cases |
+| 4 | `_retry_with_backoff` | absent | §6's cold-start 503 trap, unmitigated |
+
+§3 predicted the *category* correctly — parity risk concentrates where a difference
+changes ranked output instead of failing loudly — but located it only in
+`_escape_fts5_server`, which the golden vectors had already covered. The escaping was
+right; the WHERE clause was not. Generalising: **the risk is not "the hard function", it
+is every predicate that silently narrows or widens the result set.** Item 3 is the honest
+one — `json_each` is *better* SQL than a `LIKE` over serialized JSON, and that is exactly
+why it is a bug. The porting rule has to be transcribe-don't-improve, or blue and green
+drift at every point where green's author knew better.
+
+Note also that blue's `recall` is **not side-effect-free**: it fires `_update_access_tracking`
+in a background thread, which mutates `access_count`, which feeds `episodic` ranking. A
+read-only green cannot reproduce that, so the harness compares an access path whose inputs
+one side is still perturbing. Capture both sides close together and treat episodic id-order
+as the softest of the comparisons.
 
 ### Stage 2 — Green reads promoted to the real DB
 
@@ -477,7 +514,7 @@ The deferred layer already exists, in three places:
 
 ## 9. Decisions needed
 
-1. **Provenance mechanism** — `source` column vs. reserved tag. (Recommend: column.)
+1. ~~**Provenance mechanism** — `source` column vs. reserved tag.~~ *Resolved: column, shipped in #98.*
 2. **Auth** — reuse Sage's password-page OAuth, or a static bearer token? claude.ai
    custom connectors require OAuth; a bearer token only works for programmatic clients.
    (Recommend: OAuth, copied from Sage.)
