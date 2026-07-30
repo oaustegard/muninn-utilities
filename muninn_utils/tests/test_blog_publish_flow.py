@@ -820,3 +820,30 @@ def test_relative_time_only_scanned_in_article_body(patch_path_exists):
         '<meta name="bsky:uri" content="">',
         '<meta name="bsky:uri" content="">\n<meta name="note" content="last week">')
     bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+@pytest.mark.parametrize("phrase", [
+    "It sat in a table for a week",
+    "The job ran for three hours",
+    "We waited for a couple of days",
+    "It was broken for nearly a year",
+    "The branch was stale for over two months",
+])
+def test_duration_claims_rejected(patch_path_exists, phrase):
+    """Durations assert elapsed time as hard as "last week" does.
+
+    Second post-mortem instance, same article, same day: the closing line
+    claimed a number "sat in a results table for a week" when it had been there
+    hours, and the first version of check 8 sailed past it because it only
+    matched "<N> ago" shapes.
+    """
+    html = _valid_html(article_extra=f'<img src="/static/hero.png" alt="Hero"><p>{phrase} before anyone looked.</p>')
+    with pytest.raises(ValueError, match="Unanchored relative-time claim"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_duration_anchored_to_year_allowed(patch_path_exists):
+    html = _valid_html(
+        article_extra=f'<img src="/static/hero.png" alt="Hero"><p>Between the 2011 paper and the 2024 writeup it '
+                      'went unused for thirteen years.</p>')
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
