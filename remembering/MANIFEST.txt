@@ -12,6 +12,7 @@ muninn_utils/bsky_card.py
 muninn_utils/bsky_limit.py
 muninn_utils/bsky_moderation.py
 muninn_utils/correction_gate.py
+muninn_utils/correction_gate_benchmark.json
 muninn_utils/flowing.py
 muninn_utils/gh_proxy.py
 muninn_utils/gh_status.py
@@ -30,16 +31,10 @@ muninn_utils/skill_lint.py
 muninn_utils/strava.py
 muninn_utils/survey.py
 muninn_utils/task_policy.py
+muninn_utils/use_when.json
 muninn_utils/verify_patch.py
 muninn_utils/zeitgeist_delta.py
-remembering/.skillignore
-remembering/CHANGELOG.md
-remembering/README.md
 remembering/SKILL.md
-remembering/_ARCH.md
-remembering/references/CLAUDE.md
-remembering/references/advanced-operations.md
-remembering/references/claude-ai-project-instructions.md
 remembering/scripts/__init__.py
 remembering/scripts/aliases.py
 remembering/scripts/audit.py
@@ -53,10 +48,6 @@ remembering/scripts/defaults/profile.json
 remembering/scripts/gen_manifest.py
 remembering/scripts/hints.py
 remembering/scripts/memory.py
-remembering/scripts/migrations/add_is_superseded_column.py
-remembering/scripts/migrations/add_write_provenance_v1.py
-remembering/scripts/migrations/restructure_boot_v1.py
-remembering/scripts/migrations/restructure_boot_v1_snapshot.json
 remembering/scripts/provenance.py
 remembering/scripts/result.py
 remembering/scripts/spokes.py
