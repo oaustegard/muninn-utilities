@@ -65,21 +65,22 @@ GitHub directly. Two consequences that cost ~28 failed routine runs:
 
 ## What boot.sh does, in order
 
-1. **Sideload muninn-utilities** → `/home/claude/muninn-utilities`. Tries the
-   codeload tarball; on interception falls back to per-file fetch from
-   `raw.githubusercontent.com` driven by `remembering/MANIFEST.txt`. Fails loudly
-   on a partial fetch — a half-populated package is worse than none.
-2. **Sideload claude-skills** → `/mnt/skills/user`. Tarball only; raw has no
-   directory listing and this repo has no manifest. When codeload is blocked the
-   plugin-synced copies under `/root/.claude/plugins/synced/` serve instead.
-3. **Source env** from `$MUNINN_PROJECT_DIR` (default `/mnt/project`) with
-   `set -a`, so values overwrite rather than merge.
+1. **Source env** from `$MUNINN_PROJECT_DIR` (default `/mnt/project`) with
+   `set -a`, so values overwrite rather than merge. This is first because the
+   tarball transport needs `GH_TOKEN`. The proxy key is read straight from Turso
+   config — `scripts.config_get` isn't importable until the package lands.
+2. **Sideload muninn-utilities** → `/home/claude/muninn-utilities`, three tiers
+   (below). Fails loudly on a partial tier-3 fetch — a half-populated package is
+   worse than none.
+3. **Sideload claude-skills** → `/mnt/skills/user`. Tiers 1–2 only; no manifest
+   in that repo. If both fail, the plugin-synced copies under
+   `/root/.claude/plugins/synced/` serve instead.
 4. **Write the `.pth`** at a site-packages directory resolved at runtime — it is
    `python3.12/dist-packages` on Claude.ai and `python3.11/site-packages` in
    Cowork. Then run `boot()` and print its output.
 5. **Touch the sentinel** last, only on success.
 
-## Two transports (why the fallback exists)
+## Three transports
 
 Anthropic's session egress proxy intercepts `codeload.github.com`,
 `api.github.com`, and `github.com`, returning 403 with a `docs.anthropic.com`
@@ -87,14 +88,30 @@ Anthropic's session egress proxy intercepts `codeload.github.com`,
 in-scope access; **Cowork and the scheduled task runner have neither the tool nor
 `/mnt/project`**.
 
-`raw.githubusercontent.com` is **not** intercepted, which is what makes the
-fallback possible. It offers no directory listing, hence the manifest. Deriving
-the file list from `from .x import` statements instead is a trap: it finds the
-`.py` modules but misses `scripts/defaults/*.json` and `scripts/tasks/*.md`, and
-boot then succeeds with the Task Routing block silently empty.
+| tier | transport | requests | available when |
+|---|---|---|---|
+| 1 | codeload tarball | 1 | codeload not intercepted (CCotw, Claude.ai) |
+| 2 | **gh-api-proxy `/tarball`** | **1** | worker reachable + `GH_TOKEN` + proxy key |
+| 3 | raw + `MANIFEST.txt` | one per file | no credentials at all |
 
-For GitHub **API** work after boot, use `muninn_utils.gh_proxy` — it handles the
-same fallback for REST and GraphQL. See ops `cf-gh-proxy-key`.
+Tier 2 works because `gh-api-proxy` follows the `/tarball` → `codeload` 302
+**server-side**, so the session never touches a blocked host. It is also the only
+tier immune to CDN staleness (below), and the only one that gets `claude-skills`
+into Cowork at all.
+
+Tier 3 exists because `raw.githubusercontent.com` is not intercepted. It has no
+directory listing, hence the manifest. Deriving that list from `from .x import`
+statements is a trap: it finds the `.py` modules but misses
+`scripts/defaults/*.json` and `scripts/tasks/*.md`, and boot then succeeds with
+the Task Routing block silently empty.
+
+⚠️ **`raw` is CDN-cached on branch refs** (~minutes), and the cache is not
+client-bustable — `Cache-Control: no-cache`, `Pragma`, and query-string busters
+all still serve stale. A tier-3 boot shortly after a push silently loads pre-push
+code. Prefer tier 2 when iterating, or pin `MUNINN_UTILS_REF=<sha>`.
+
+For GitHub **API** work after boot, use `muninn_utils.gh_proxy` — same fallback
+logic for REST and GraphQL. See ops `cf-gh-proxy-key`.
 
 ## Dynamic sideload (no pins)
 
