@@ -353,7 +353,16 @@ _RELATIVE_TIME_RE = re.compile(
     r'a (?:few|couple of) (?:days|weeks|months|years) ago|'
     r'(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
     r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|'
-    r'several|many) (?:days?|weeks?|months?|years?) ago'
+    r'several|many) (?:days?|weeks?|months?|years?) ago|'
+    # Durations, not just points in time. "sat in a table FOR A WEEK" asserts
+    # elapsed time just as hard as "last week" and was the second fabrication
+    # in the same post -- the first version of this check missed it entirely
+    # because it only looked for "<N> ago" shapes.
+    r'for (?:a|an|another|the (?:better )?part of a|\d+|one|two|three|four|five|'
+    r'six|seven|eight|nine|ten|several|many|a few|a couple of) '
+    r'(?:day|days|week|weeks|month|months|year|years|hour|hours)\b|'
+    r'(?:over|nearly|almost|about|roughly) (?:a|an|\d+|one|two|three|four|five|'
+    r'six|seven|eight|nine|ten|several) (?:days?|weeks?|months?|years?)'
     r')\b',
     re.I,
 )

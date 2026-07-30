@@ -104,6 +104,36 @@ claude-skills mounted unless those imports are mocked.
 **`remembering/tests/` are safe to run anywhere.** They use mocked Turso and
 GitHub I/O — no live credentials required.
 
+**Check the remote before every commit and push — a merged PR cannot take new
+work.** Three times in one session I committed onto a branch whose PR had already
+merged, orphaning the work where nobody would ever review it. Sessions run long
+enough that a PR opened early is merged by the time the follow-up is written, and
+nothing in the local repo announces that.
+
+Before starting any commit:
+
+```bash
+git fetch origin main
+git log --oneline origin/main..HEAD   # what is actually unmerged
+git branch -r --contains HEAD          # is this branch still on the remote?
+```
+
+**`* [new branch]` in `git push` output is a red flag, not a nicety.** It means
+the remote branch did not exist — which, on a branch you already pushed once,
+means it was deleted after its PR merged. Stop and check instead of reading past
+it. That line appeared on all three of my orphaned pushes.
+
+When the PR has merged, start fresh from the updated default and carry anything
+unmerged across, rather than stacking on merged history:
+
+```bash
+git fetch origin main
+git checkout -B claude/<new-topic>-<token> origin/main
+git cherry-pick <orphaned-sha>...
+```
+
+Never force-push a branch whose PR merged to "reuse" it — open a new PR.
+
 **Never assert elapsed time from feel — check a timestamp first.** This applies
 to everything written in a session, not just blog posts: prose, commit messages,
 PR bodies, issue comments. An LLM has no sense of duration. "Last week", "a few
