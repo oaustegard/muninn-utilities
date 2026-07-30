@@ -146,19 +146,30 @@ def _proxy_key() -> str:
 def _intercepted(status: int, body: bytes) -> bool:
     """True when this 403 is Anthropic's egress proxy, not GitHub and not the worker.
 
-    There are at least TWO distinct interception messages, and matching only the
-    first one is the bug that kept this broken (verified 2026-07-29):
+    There are at least THREE distinct interception messages, and matching only the
+    first one is the bug that kept this broken (verified 2026-07-29, extended
+    2026-07-30):
 
       repo scope : "GitHub access to this repository is not enabled for this
                     session. Use add_repo..."
       graphql    : "This GraphQL query is not enabled for this session — only the
                     pinned set of PR-review operations is served. Use REST via
                     `gh api repos/{owner}/{repo}/...` instead."
+      write path : "Write access to this GitHub API path is not permitted through
+                    this proxy."
 
     The GraphQL variant does NOT mention add_repo, so an add_repo-keyed detector
-    never falls back and the caller sees a hard 403. Both bodies carry a
-    docs.anthropic.com documentation_url — that is the reliable shared tell, and
-    one GitHub itself never emits.
+    never falls back and the caller sees a hard 403.
+
+    The write-path variant is the subtlest of the three, because READS SUCCEED
+    under it: the same token GETs the repo at 200, so a caller with its own
+    direct transport sails through validation and every existence probe, then
+    dies on the first POST. It presents as a token-scope problem and is not one
+    — add_repo does not lift it. It mentions neither add_repo nor GraphQL.
+
+    All three carry a docs.anthropic.com documentation_url — that is the reliable
+    shared tell, and one GitHub itself never emits. Do NOT narrow this to match
+    on message text: that is what makes the detector survive body #4.
     """
     if status != 403:
         return False

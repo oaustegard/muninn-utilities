@@ -11,7 +11,6 @@ Reaction → action mapping:
 
 Unreacted logs older than NAG_DAYS → nag Oskar to triage.
 """
-import urllib.request, json, os
 from datetime import datetime, timezone, timedelta
 
 CATEGORY_ID = "DIC_kwDORr5Vj84C5A3Z"  # Flight Log (oaustegard/muninn.austegard.com)
@@ -33,20 +32,25 @@ ACTION_MAP = {
 
 
 def _gh_graphql(query, variables=None):
-    """Execute a GitHub GraphQL query."""
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        raise RuntimeError("No GitHub token found (GH_TOKEN or GITHUB_TOKEN)")
-    payload = json.dumps({"query": query, "variables": variables or {}}).encode()
-    req = urllib.request.Request(
-        "https://api.github.com/graphql",
-        data=payload,
-        headers={"Authorization": f"bearer {token}", "Content-Type": "application/json"},
-    )
-    resp = json.loads(urllib.request.urlopen(req).read())
-    if "errors" in resp:
-        raise RuntimeError(f"GraphQL errors: {resp['errors']}")
-    return resp["data"]
+    """Execute a GitHub GraphQL query. Returns response["data"].
+
+    Routes through muninn_utils.gh_proxy rather than hitting api.github.com
+    directly. Anthropic's session egress proxy serves only a pinned set of
+    GraphQL operations and 403s everything else with a docs.anthropic.com
+    documentation_url; the discussion query and the close/comment mutations
+    below are not in that set, so the direct transport was dead here. gh_proxy
+    keys on that tell and falls back to gh-api-proxy, which forwards the
+    Authorization header verbatim on any method and any path — /graphql
+    included.
+
+    The import is function-local on purpose: gh_proxy reaches Turso for the
+    proxy key on first use, so hoisting it would make importing this module do
+    network I/O. gh_proxy.graphql already raises GitHubTransportError (a
+    RuntimeError) both for a missing/placeholder token and for a populated
+    `errors` key, which is the same contract this helper had.
+    """
+    from . import gh_proxy
+    return gh_proxy.graphql(query, variables)
 
 
 def _close_discussion(node_id, comment=None):
