@@ -29,6 +29,12 @@ GRAPHQL_403 = json.dumps({
     "documentation_url": "https://docs.anthropic.com/en/docs/claude-code/github-actions",
 }).encode()
 
+WRITE_BLOCK_403 = json.dumps({
+    "message": "Write access to this GitHub API path is not permitted through "
+               "this proxy.",
+    "documentation_url": "https://docs.anthropic.com/en/docs/claude-code/github-actions",
+}).encode()
+
 GITHUB_401 = json.dumps({
     "message": "Bad credentials",
     "documentation_url": "https://docs.github.com/rest",
@@ -73,6 +79,21 @@ class TestInterceptionDetection(unittest.TestCase):
         # The one an add_repo-keyed detector misses. This is the whole bug.
         self.assertNotIn(b"add_repo", GRAPHQL_403)
         self.assertTrue(gh_proxy._intercepted(403, GRAPHQL_403))
+
+    def test_write_block_403_detected(self):
+        # The THIRD interception body, found 2026-07-30 when publish_and_announce
+        # died on POST /git/blobs. Nastier than the other two because READS
+        # SUCCEED: the repo GETs 200 with the same token, so it reads as a
+        # permissions or token-scope bug and add_repo does not lift it.
+        #
+        # It mentions neither add_repo nor GraphQL — the docs.anthropic.com tell
+        # is the ONLY thing that catches it. That means the detector handles this
+        # body incidentally rather than by design, so pin it: anyone narrowing
+        # _intercepted to match on message text would silently re-break every
+        # write path in the package.
+        self.assertNotIn(b"add_repo", WRITE_BLOCK_403)
+        self.assertNotIn(b"GraphQL", WRITE_BLOCK_403)
+        self.assertTrue(gh_proxy._intercepted(403, WRITE_BLOCK_403))
 
     def test_github_own_401_not_treated_as_interception(self):
         self.assertFalse(gh_proxy._intercepted(401, GITHUB_401))
