@@ -752,3 +752,71 @@ def test_publish_page_bytes_uses_base64_encoding(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ── check 8: unanchored relative-time claims ────────────────────────
+#
+# Post-mortem, 2026-07-30: dont-binarize-the-query.html shipped with "Last week
+# I measured..." about a post published the same day, twelve hours earlier. An
+# LLM author cannot verify elapsed time by feel; the sentence reads fine and the
+# error is invisible on reread.
+
+
+def test_relative_time_unanchored_rejected(patch_path_exists):
+    html = _valid_html(article_extra='<img src="/static/hero.png" alt="Hero"><p>Last week I measured the thing.</p>')
+    with pytest.raises(ValueError, match="Unanchored relative-time claim"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_relative_time_anchored_to_year_allowed(patch_path_exists):
+    """"nineteen months ago" next to an absolute date is checkable, so allowed."""
+    html = _valid_html(
+        article_extra='<img src="/static/hero.png" alt="Hero"><p>They published it on December 17, 2024 — '
+                      'nineteen months ago, which is a long time.</p>')
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_byline_year_does_not_anchor(patch_path_exists):
+    """The regression that made the first version of this check useless.
+
+    The byline carries THIS post's own year and always sits within the anchor
+    window of the opening paragraph — which is exactly where "last week" lives.
+    Counting it laundered the very case the check exists to catch.
+    """
+    html = f"""<!doctype html>
+<html><head>
+<meta property="article:published_time" content="2026-07-30T12:00:00Z">
+<meta name="bsky:uri" content="">
+</head><body>
+<article>
+<p class="post-meta">Written by Muninn &middot; July 30, 2026</p>
+<p>Last week I measured the thing.</p>
+</article>
+</body></html>"""
+    with pytest.raises(ValueError, match="Unanchored relative-time claim"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+@pytest.mark.parametrize("phrase", [
+    "Last week", "Yesterday", "Three months ago", "a few days ago",
+    "earlier today", "several years ago", "this morning",
+])
+def test_relative_time_phrase_variants_rejected(patch_path_exists, phrase):
+    html = _valid_html(article_extra=f'<img src="/static/hero.png" alt="Hero"><p>{phrase} I shipped a change.</p>')
+    with pytest.raises(ValueError, match="Unanchored relative-time claim"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_absolute_dates_are_not_flagged(patch_path_exists):
+    """Absolute references need no guard — they are already verifiable."""
+    html = _valid_html(
+        article_extra='<img src="/static/hero.png" alt="Hero"><p>Published on 2024-12-17, and again in March 2024.</p>')
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+def test_relative_time_only_scanned_in_article_body(patch_path_exists):
+    """A relative phrase in <head> metadata is out of scope for this check."""
+    html = _valid_html().replace(
+        '<meta name="bsky:uri" content="">',
+        '<meta name="bsky:uri" content="">\n<meta name="note" content="last week">')
+    bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")

@@ -177,6 +177,9 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
         6. All inline <img> tags have non-empty alt=""
         7. No non-structural HTML entities in <title> / og:title / og:description /
            description / article:summary content (Bluesky CardyB does not decode)
+        8. No unanchored relative-time claims ("last week", "three months ago")
+           in the article body — an LLM author cannot verify these by feel, so
+           they must sit near an absolute year or not be written
 
     `repo` and `branch` are used only by check 5 (the existence probe).
     """
@@ -290,6 +293,75 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
                 f"(\u2019 \u2018 \u201c \u201d \u2014 \u2026). "
                 f"See i-dont-have-a-watch.html post-mortem, 2026-05-13."
             )
+
+    # 8. No unanchored relative-time claims in the prose.
+    #
+    # An LLM author has no reliable sense of elapsed time. It will write "last
+    # week" about something that happened four hours ago, because the phrase
+    # *feels* right for "a previous piece of work" and nothing in the sentence
+    # forces a check. This is not a rare slip; it is the default failure mode,
+    # and it survives reread because the sentence is perfectly well formed.
+    #
+    # Real instance: dont-binarize-the-query.html shipped with "Last week I
+    # measured..." referring to quantize-dont-truncate.html -- published the
+    # SAME DAY, twelve hours earlier (both 2026-07-30).
+    #
+    # The rule is not "never write relative time", it is "never write it
+    # unanchored". A relative phrase next to an absolute date is checkable by
+    # the reader and was almost certainly checked by the author ("December 17,
+    # 2024 -- nineteen months ago" is fine). A bare "last week" is neither. So:
+    # require a 4-digit year within _ANCHOR_WINDOW characters, else refuse.
+    #
+    # The fix at the callsite is always cheap: state the absolute date, or drop
+    # the time reference. Absolute dates also age correctly; relative ones rot.
+    body = re.search(r'<article[^>]*>(.*?)</article>', content, re.S)
+    if body:
+        # Drop the byline before scanning. It always carries this post's own
+        # publication year, always sits within the anchor window of the opening
+        # paragraph, and never anchors a claim about anything else -- so leaving
+        # it in launders exactly the case this check exists to catch. (The
+        # "Last week" instance was in the first sentence, four words after a
+        # byline reading "July 30, 2026".)
+        stripped = re.sub(r'<p[^>]+class="post-meta"[^>]*>.*?</p>', ' ',
+                          body.group(1), flags=re.S)
+        prose = re.sub(r'<[^>]+>', ' ', stripped)
+        for m in _RELATIVE_TIME_RE.finditer(prose):
+            lo = max(0, m.start() - _ANCHOR_WINDOW)
+            if re.search(r'\b(19|20)\d{2}\b', prose[lo:m.end() + _ANCHOR_WINDOW]):
+                continue  # anchored to a nearby absolute year -- checkable
+            snippet = " ".join(prose[lo:m.end() + 60].split())[-160:]
+            raise ValueError(
+                f"Unanchored relative-time claim {m.group(0)!r} in the article "
+                f"body, with no absolute year within {_ANCHOR_WINDOW} chars: "
+                f"...{snippet}... -- verify it against a real timestamp (the "
+                f"article:published_time of whatever you are referring to, a "
+                f"commit date, `date -u`), then state the absolute date or drop "
+                f"the time reference. See dont-binarize-the-query.html "
+                f"post-mortem, 2026-07-30: shipped \"Last week I measured\" "
+                f"about a post published the same day."
+            )
+
+
+# Phrases asserting elapsed time relative to now. Deliberately narrow: these are
+# both common in prose and unverifiable from the text itself. "in 2024" or "on
+# December 17" need no guard -- they are already absolute.
+_RELATIVE_TIME_RE = re.compile(
+    r'\b(?:'
+    r'last (?:week|month|year|night)|'
+    r'this (?:week|month|morning|afternoon)|'
+    r'yesterday|the other day|earlier today|just (?:now|published|shipped)|'
+    r'a (?:few|couple of) (?:days|weeks|months|years) ago|'
+    r'(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
+    r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|'
+    r'several|many) (?:days?|weeks?|months?|years?) ago'
+    r')\b',
+    re.I,
+)
+
+# How far to look for a 4-digit year that anchors a relative phrase. Wide enough
+# to span the adjacent sentence, narrow enough that an unrelated year elsewhere
+# in the paragraph cannot launder an unchecked claim.
+_ANCHOR_WINDOW = 220
 
 
 # ── Template-filler (issue #67) ────────────────────────────────────

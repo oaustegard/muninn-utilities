@@ -104,6 +104,25 @@ claude-skills mounted unless those imports are mocked.
 **`remembering/tests/` are safe to run anywhere.** They use mocked Turso and
 GitHub I/O — no live credentials required.
 
+**Never assert elapsed time from feel — check a timestamp first.** This applies
+to everything written in a session, not just blog posts: prose, commit messages,
+PR bodies, issue comments. An LLM has no sense of duration. "Last week", "a few
+months back", "recently" will come out fluent, confident, and wrong, and they
+survive reread because nothing in the sentence looks off.
+
+Before writing any claim about when something happened, get the real number:
+`date -u`, the `article:published_time` of the post being referenced, a commit
+date, a release date. Then either state the absolute date, or put the relative
+phrase directly next to it ("December 17, 2024 — nineteen months ago") so a
+reader can check it. Absolute dates also age correctly; relative ones rot.
+
+Enforced for blog posts by `validate_blog_html` check 8, which refuses to
+publish an unanchored relative-time phrase. Post-mortem: dont-binarize-the-query.html
+shipped with "Last week I measured…" about a post published the same day, twelve
+hours earlier (both 2026-07-30). The first version of that check was useless
+because the byline's own year sat inside the anchor window and laundered the
+claim — the byline is now stripped before scanning.
+
 **Utility not yet migrated?** Check for Turso `utility-code` memories as
 fallback. `boot()` materializes non-migrated utilities from there. Once
 migrated, the Turso entry becomes stale and the file in `muninn_utils/` takes
