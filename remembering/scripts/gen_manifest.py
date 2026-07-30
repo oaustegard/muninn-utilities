@@ -29,24 +29,38 @@ HEADER = """\
 # Excludes tests/.
 """
 
-RUNTIME_SUFFIXES = {
-    'remembering/': ('.py', '.json', '.md', '.skillignore'),
-    'muninn_utils/': ('.py',),
-}
+# What a session actually LOADS, as opposed to what merely has a plausible
+# extension. Selecting by extension alone pulled in CHANGELOG.md, README.md,
+# _ARCH.md, references/*.md and migrations/* — 12 files no code path opens, each
+# costing an HTTP round trip on the raw fallback. Fixed 2026-07-30.
+INCLUDE = (
+    'remembering/SKILL.md',              # skill descriptor, read when mounted
+    'remembering/scripts/',              # boot + memory code, defaults/, tasks/
+    'muninn_utils/',                     # utility package
+)
+EXCLUDE_DIRS = ('/tests/', '/migrations/', '/__pycache__/', 'remembering/references/')
+EXCLUDE_EXACT = (
+    'remembering/CHANGELOG.md',
+    'remembering/README.md',
+    'remembering/_ARCH.md',
+    'remembering/.skillignore',
+    'remembering/MANIFEST.txt',          # the manifest fetches itself first
+)
+SUFFIXES = ('.py', '.json', '.md')
 
 
 def is_runtime(path: str) -> bool:
-    for prefix, suffixes in RUNTIME_SUFFIXES.items():
-        if path.startswith(prefix):
-            if '/tests/' in path:
-                return False
-            return path.endswith(suffixes)
-    return False
+    if path in EXCLUDE_EXACT or any(d in path for d in EXCLUDE_DIRS):
+        return False
+    if not any(path == inc or path.startswith(inc) for inc in INCLUDE):
+        return False
+    return path.endswith(SUFFIXES)
 
 
 def from_checkout(root: str) -> list:
     out = []
-    for prefix in RUNTIME_SUFFIXES:
+    roots = {inc.split('/')[0] for inc in INCLUDE}
+    for prefix in roots:
         for dirpath, dirnames, filenames in os.walk(os.path.join(root, prefix)):
             dirnames[:] = [d for d in dirnames if d not in ('tests', '__pycache__')]
             for fn in filenames:
