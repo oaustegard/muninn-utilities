@@ -2,14 +2,23 @@
 
 WHY THIS EXISTS
 ---------------
-Anthropic's session egress proxy intercepts *.github.com wholesale and returns
-HTTP 403 with a JSON body containing "Use add_repo". Session types that have an
-`add_repo` tool can grant themselves in-scope access; Cowork and the scheduled
-task runner have no such tool, so every GitHub call fails there.
+Anthropic's session egress proxy intercepts *.github.com and returns HTTP 403.
+Session types that have an `add_repo` tool can grant themselves in-scope access;
+Cowork and the scheduled task runner have no such tool, so every GitHub call
+fails there.
 
-For four weeks this was misdiagnosed as "GraphQL proxying is not enabled" — the
-403 arrives on GraphQL and REST alike, and the GraphQL failures were the visible
-ones (muninns-inbox discussions). It was never GraphQL-specific.
+It emits (at least) TWO different 403 bodies, and conflating them is what kept
+the muninns-inbox block alive for 28 routine runs:
+
+  repo scope : "GitHub access to this repository is not enabled for this
+                session. Use add_repo to request access."
+  graphql    : "This GraphQL query is not enabled for this session — only the
+                pinned set of PR-review operations is served."
+
+The GraphQL message is real and accurately reported by the direct path — what
+was wrong was reading it as an immutable platform property. It is egress policy,
+and a proxy bypasses it. Note it never says "add_repo": an add_repo-keyed
+detector fails to fall back on exactly the case that matters most.
 
 gh-api-proxy (a Cloudflare Worker) forwards `Authorization` verbatim on ANY
 method and ANY path, so /graphql was always in scope. Its description only
@@ -22,9 +31,13 @@ Self-healing: no session-type detection, no config flag. In CCotw with add_repo
 the direct path serves in-scope repos at full speed; in Cowork or a routine the
 first call pays one wasted round trip and everything after it uses the proxy.
 
-Distinguish the two 403s — they mean different things:
-  Anthropic interception : JSON body containing "add_repo"   -> retry via proxy
-  worker auth rejection  : plaintext body "forbidden"        -> bad X-Proxy-Key
+Distinguish THREE 403s — they mean different things:
+  Anthropic interception : JSON with a docs.anthropic.com documentation_url
+                           (either message above)            -> retry via proxy
+  worker auth rejection  : plaintext body "forbidden"         -> bad X-Proxy-Key
+  GitHub itself          : JSON with a docs.github.com url    -> real permission
+                                                                 problem; do not
+                                                                 retry
 
 CREDENTIALS
 -----------
@@ -44,6 +57,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -97,15 +111,34 @@ def _gh_token() -> str:
     )
 
 
+#: A worker key is an opaque URL-safe token. Ops config values are prose-friendly:
+#: cf-gh-proxy-key holds the key on line 1 followed by usage documentation. Passing
+#: the whole value as a header raises UnicodeEncodeError on the first em-dash —
+#: HTTP headers are latin-1. Extract, don't trust.
+_KEY_RE = re.compile(r"^[A-Za-z0-9_\-]{20,}$")
+
+
+def parse_proxy_key(raw: str) -> str:
+    """Pull the bare key out of a config value that may carry documentation."""
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if _KEY_RE.match(line):
+            return line
+    raise GitHubTransportError(
+        "cf-gh-proxy-key holds no line that looks like a key "
+        "(expected >=20 URL-safe chars on its own line)"
+    )
+
+
 def _proxy_key() -> str:
     if _state["proxy_key"]:
         return _state["proxy_key"]
     key = os.environ.get("CF_GH_PROXY_KEY")
-    if not key:
+    if key:
+        key = parse_proxy_key(key)
+    else:
         from scripts import config_get  # deferred: Turso may not be wired at import time
-        key = (config_get("cf-gh-proxy-key") or "").strip()
-    if not key:
-        raise GitHubTransportError("no cf-gh-proxy-key in env or Turso ops config")
+        key = parse_proxy_key(config_get("cf-gh-proxy-key") or "")
     _state["proxy_key"] = key
     return key
 

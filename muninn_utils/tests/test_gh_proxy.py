@@ -158,5 +158,36 @@ class TestFallback(unittest.TestCase):
         self.assertEqual(seen["User-Agent"], gh_proxy.UA)
 
 
+
+class TestProxyKeyParsing(unittest.TestCase):
+    """The ops config value carries usage docs after the key. Passing the whole
+    thing as a header raises UnicodeEncodeError on the first em-dash, because
+    HTTP headers are latin-1. Regression from expanding the ops entry."""
+
+    DOCUMENTED = (
+        "p1o6mUPSeQCNmkVYUmFrPYp0nupAqOrNSY5o8uyoxnk\n"
+        "\n"
+        "GH-API-PROXY \u2014 X-Proxy-Key above.\n"
+        "FULL PASSTHROUGH \u2014 any method, ANY PATH \u2014 including /graphql.\n"
+    )
+
+    def test_extracts_key_from_documented_value(self):
+        self.assertEqual(gh_proxy.parse_proxy_key(self.DOCUMENTED),
+                         "p1o6mUPSeQCNmkVYUmFrPYp0nupAqOrNSY5o8uyoxnk")
+
+    def test_extracted_key_is_header_safe(self):
+        key = gh_proxy.parse_proxy_key(self.DOCUMENTED)
+        key.encode("latin-1")  # would raise before the fix
+
+    def test_bare_key_still_works(self):
+        self.assertEqual(gh_proxy.parse_proxy_key("  abcdefghij0123456789  "),
+                         "abcdefghij0123456789")
+
+    def test_prose_only_value_raises_clearly(self):
+        with self.assertRaises(gh_proxy.GitHubTransportError) as cm:
+            gh_proxy.parse_proxy_key("see the worker source \u2014 no key here")
+        self.assertIn("no line that looks like a key", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
