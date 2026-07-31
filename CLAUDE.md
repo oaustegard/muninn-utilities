@@ -64,7 +64,7 @@ the mount, not from this package.
 | | |
 |---|---|
 | remembering boot script | `remembering/scripts/boot.py` |
-| Turso credentials | `TURSO_TOKEN`, `TURSO_DB_URL` from env |
+| Turso credentials | `TURSO_TOKEN`, `TURSO_URL` from env |
 | muninn_utils materialized path | `~/muninn_utils/` |
 | remembering skill path | `/mnt/skills/user/remembering/` |
 | Manifests | `manifests/<utility-name>.json` (one per util) |
