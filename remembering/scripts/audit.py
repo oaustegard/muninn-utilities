@@ -301,10 +301,26 @@ def audit(
         warnings.append(
             f"manifests with no module: {', '.join(diff['manifests_only'])}"
         )
-    if diff["modules_only"]:
-        warnings.append(
-            f"modules with no manifest: {', '.join(diff['modules_only'])}"
-        )
+    # A module is adequately declared by EITHER an install-manifest (the heavier schema,
+    # for externally invocable tools) or a capability-catalog entry. Library-only modules
+    # were warning forever for lacking an artifact they had no use for, which is how a
+    # nine-item warning turns into wallpaper that hides a real one.
+    capability_declared: set = set()
+    try:
+        from muninn_utils.capability_model import declared_modules
+
+        capability_declared = declared_modules()
+    except Exception as exc:  # noqa: BLE001 — audit() never raises
+        # An absent or broken catalog must not fail the audit; it just means nothing is
+        # capability-declared, so every unmanifested module warns as it did before.
+        warnings.append(f"capability catalog unavailable ({exc}); manifest-only audit")
+    undeclared = [m for m in diff["modules_only"] if m not in capability_declared]
+    diff["capability_declared"] = sorted(
+        m for m in diff["modules_only"] if m in capability_declared
+    )
+    diff["undeclared"] = undeclared
+    if undeclared:
+        warnings.append(f"modules with no manifest or capability entry: {', '.join(undeclared)}")
 
     total_modules = len(_module_stems(module_dir))
     summary = (

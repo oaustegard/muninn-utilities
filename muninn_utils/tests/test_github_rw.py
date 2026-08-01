@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 import urllib.error
 
+import pytest
+
 import muninn_utils.github_rw as gh
 
 
@@ -72,11 +74,49 @@ def test_branch_exists_false_on_404(monkeypatch):
     assert gh.branch_exists("o/r", "feat") is False
 
 
-def test_create_branch_noop_when_exists(monkeypatch):
-    rec = _Recorder([("GET", "/git/ref/heads/feat", {"ref": "refs/heads/feat"})])
+def test_create_branch_returns_existing_ref_on_422(monkeypatch):
+    """create_branch is POST-first by design: it does NOT check existence before creating,
+    because an existence check immediately before a create can read a stale replica (see
+    the docstring — three failures in one session, 2026-07-04). 422 means the branch is
+    already there, and the ref is then read back."""
+    rec = _Recorder([
+        ("GET", "/git/ref/heads/main", {"object": {"sha": "basesha"}}),
+        ("POST", "/git/refs", _http_error(422)),
+        ("GET", "/git/ref/heads/feat", {"ref": "refs/heads/feat"}),
+    ])
     monkeypatch.setattr(gh, "_gh", rec)
-    gh.create_branch("o/r", "feat")
-    assert rec.posts() == []          # never creates a ref when the branch is there
+    assert gh.create_branch("o/r", "feat") == {"ref": "refs/heads/feat"}
+    assert len(rec.posts()) == 1      # the create is attempted, unconditionally
+
+
+def test_create_branch_rides_out_replica_lag_after_422(monkeypatch):
+    """The read-back tolerates brief 404s from an eventually-consistent replica. This is the
+    behaviour the POST-first rewrite exists for, and it had no test."""
+    reads = iter([_http_error(404), _http_error(404), {"ref": "refs/heads/feat"}])
+
+    def _gh_stub(method, endpoint, body=None, **kw):
+        if method == "GET" and "/git/ref/heads/main" in endpoint:
+            return {"object": {"sha": "basesha"}}
+        if method == "POST":
+            raise _http_error(422)
+        result = next(reads)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(gh, "_gh", _gh_stub)
+    monkeypatch.setattr(gh.time, "sleep", lambda _s: None)
+    assert gh.create_branch("o/r", "feat") == {"ref": "refs/heads/feat"}
+
+
+def test_create_branch_reraises_non_422_errors(monkeypatch):
+    rec = _Recorder([
+        ("GET", "/git/ref/heads/main", {"object": {"sha": "basesha"}}),
+        ("POST", "/git/refs", _http_error(500)),
+    ])
+    monkeypatch.setattr(gh, "_gh", rec)
+    with pytest.raises(urllib.error.HTTPError):
+        gh.create_branch("o/r", "feat")
 
 
 def test_create_branch_creates_from_base(monkeypatch):
@@ -92,7 +132,9 @@ def test_create_branch_creates_from_base(monkeypatch):
 
 def test_commit_file_new_omits_sha(monkeypatch):
     rec = _Recorder([
-        ("GET", "/git/ref/heads/br", {"ref": "exists"}),           # create_branch no-op
+        ("GET", "/git/ref/heads/main", {"object": {"sha": "basesha"}}),  # create_branch base
+        ("POST", "/git/refs", _http_error(422)),                   # branch already exists
+        ("GET", "/git/ref/heads/br", {"ref": "exists"}),           # read-back
         ("GET", "/contents/", _http_error(404)),                   # get_file -> absent
         ("PUT", "/contents/", {"commit": {"sha": "c1"}}),
     ])
@@ -107,6 +149,8 @@ def test_commit_file_new_omits_sha(monkeypatch):
 def test_commit_file_existing_includes_sha(monkeypatch):
     existing = base64.b64encode(b"old").decode()
     rec = _Recorder([
+        ("GET", "/git/ref/heads/main", {"object": {"sha": "basesha"}}),
+        ("POST", "/git/refs", _http_error(422)),
         ("GET", "/git/ref/heads/br", {"ref": "exists"}),
         ("GET", "/contents/", {"content": existing, "sha": "filesha"}),
         ("PUT", "/contents/", {"commit": {"sha": "c2"}}),
