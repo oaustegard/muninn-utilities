@@ -42,6 +42,9 @@ REQUIREMENTS: dict[str, Callable[[], bool]] = {
     "github": lambda: _has("GH_TOKEN"),
     "gemini": lambda: _has("CF_ACCOUNT_ID", "CF_GATEWAY_ID", "CF_API_TOKEN"),
     "bsky": lambda: _has("BSKY_HANDLE", "BSKY_APP_PASSWORD"),
+    "gh-proxy": lambda: _has("GH_TOKEN", "CF_GH_PROXY_KEY"),
+    "strava": lambda: _has("STRAVA_CLIENT_ID", "STRAVA_CLIENT_SECRET"),
+    "none": lambda: True,
 }
 
 
@@ -186,6 +189,93 @@ CAPABILITIES: dict[str, Capability] = dict(
                 summary="Mutate the spoke registry.",
             )
         ),
+        # -- utility modules ----------------------------------------------------
+        # These carry no install-manifest (that schema describes an externally invocable
+        # tool; most of these are library-only). A capability entry is the lighter
+        # declaration: same essential facts — env needed, exports, whether it writes —
+        # which is what the boot audit's "modules with no manifest" warning was actually
+        # asking for.
+        _cap(
+            Capability(
+                id="repo-read",
+                module="muninn_utils.gh_status",
+                exports=("pr_status", "issue_status"),
+                writes=False,
+                requires=("github",),
+                summary="Live GitHub PR/issue state for spoke workflows.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="repo-write",
+                module="muninn_utils.github_rw",
+                exports=("commit_file", "create_branch", "open_pr", "get_file"),
+                writes=True,
+                requires=("github",),
+                summary="Branch-aware GitHub writes: commit, branch, PR.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="repo-proxy",
+                module="muninn_utils.gh_proxy",
+                exports=("graphql", "rest", "commit_files", "open_pr", "valid_token"),
+                writes=True,
+                requires=("gh-proxy",),
+                summary="Direct-then-proxy GitHub transport for egress-intercepted sessions.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="bsky-moderate",
+                module="muninn_utils.bsky_moderation",
+                exports=("extract_thread_repliers", "moderate"),
+                writes=True,
+                requires=("bsky",),
+                summary="Bulk mute/block of thread repliers. Extraction half is read-only; "
+                "moderate() acts, hence WRITE.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="lint",
+                module="muninn_utils.ruff_gate",
+                exports=("ruff_gate", "changed_python_files", "report"),
+                writes=False,
+                requires=("none",),
+                summary="Ruff gate over changed files before a commit.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="skill-lint",
+                module="muninn_utils.skill_lint",
+                exports=("validate_skill", "validate_skill_file"),
+                writes=False,
+                requires=("none",),
+                summary="Structural lint of a SKILL.md against the skill conventions.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="search-index",
+                module="muninn_utils.search_reindex",
+                exports=("reindex_search", "search_hits", "verify_indexed"),
+                writes=True,
+                requires=("github",),
+                summary="Rebuild the cross-repo search index. Writes to the index repo.",
+            )
+        ),
+        _cap(
+            Capability(
+                id="strava",
+                module="muninn_utils.strava",
+                exports=("latest", "recent", "activity", "analyze_streams"),
+                writes=False,
+                requires=("strava",),
+                summary="Read Strava activity history.",
+            )
+        ),
         _cap(
             Capability(
                 id="survey",
@@ -206,6 +296,8 @@ BUNDLES: dict[str, tuple[str, ...]] = {
     "mini-muninn": ("recall", "ops-read", "spokes-read", "survey"),
     # Corpus questions only — no repo access, so it boots without a GitHub token.
     "corpus-reader": ("recall", "survey"),
+    # Read-only repo questions, for a subagent auditing spoke state.
+    "repo-reader": ("recall", "repo-read", "spokes-read"),
     "full": tuple(CAPABILITIES),
 }
 
@@ -316,3 +408,29 @@ def describe(ids: Iterable[str] | None = None) -> str:
         lines.append(f"{'':<14} {cap.summary}")
         lines.append(f"{'':<14} exports: {', '.join(cap.exports)}")
     return "\n".join(lines)
+
+
+# Modules that IMPLEMENT the capability layer rather than being granted through it. You
+# cannot hand a subagent "the capability model" as a capability, and mini_muninn is the
+# restricted surface itself, not something reachable from inside one. They are declared, but
+# by being named here rather than by having an entry.
+INFRASTRUCTURE_MODULES = {
+    "capability_model",
+    "mini_muninn",
+    "gemini_mini_muninn",
+}
+
+
+def declared_modules() -> set[str]:
+    """Module stems the catalog declares, for the boot manifest audit.
+
+    A module is adequately declared if it has EITHER an install-manifest (the heavier
+    schema, for externally invocable tools) OR a capability entry. Before this, every
+    library-only module warned forever for lacking an artifact it had no use for, which is
+    how a nine-item warning becomes wallpaper.
+    """
+    return {
+        cap.module.rsplit(".", 1)[-1]
+        for cap in CAPABILITIES.values()
+        if cap.module.startswith("muninn_utils.")
+    } | INFRASTRUCTURE_MODULES

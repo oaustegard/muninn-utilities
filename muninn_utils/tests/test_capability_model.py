@@ -166,3 +166,23 @@ def test_cli_dispatch_map_matches_the_granted_surface():
         "spokes_list",
     }
     assert dispatched <= granted
+
+
+# -- manifest audit reconciliation ----------------------------------------------
+
+
+def test_declared_modules_covers_every_previously_unmanifested_module():
+    """The nine the boot audit warned about, by name. A capability entry is the lighter
+    declaration for a library-only module that has no use for an install-manifest."""
+    previously_warned = {
+        "bsky_moderation", "gh_proxy", "gh_status", "github_rw",
+        "ruff_gate", "search_reindex", "skill_lint", "strava", "survey",
+    }
+    assert previously_warned <= cm.declared_modules()
+
+
+def test_infrastructure_modules_are_declared_but_not_grantable():
+    """They implement the capability layer; they are not capabilities."""
+    grantable = {c.module.rsplit(".", 1)[-1] for c in cm.CAPABILITIES.values()}
+    assert cm.INFRASTRUCTURE_MODULES.isdisjoint(grantable)
+    assert cm.INFRASTRUCTURE_MODULES <= cm.declared_modules()
