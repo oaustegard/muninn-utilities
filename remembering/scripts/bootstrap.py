@@ -51,6 +51,16 @@ def create_tables():
     # v5.x.0 (#issue-superseded-col): Index to prune superseded/deleted memories
     # at the start of every recall query, replacing a full json_each(refs) scan.
     _exec("CREATE INDEX IF NOT EXISTS idx_memories_active ON memories(is_superseded, deleted_at)")
+    # 2026-08-01: Reminder state lives in the tags JSON blob, so every lookup is a
+    # leading-wildcard LIKE that no ordinary index can serve — it degraded to a full
+    # remote scan (5,063 rows, ~46 s) that blew the 30 s client timeout and failed
+    # boot outright. One partial index per state materialises only that state's rows.
+    # muninn_utils.remind._ensure_remind_indexes() mirrors these for existing DBs;
+    # the query-shape constraints they impose are documented in that module.
+    for _state in ("remind-active", "remind-snoozed", "remind-done"):
+        _exec(f"""CREATE INDEX IF NOT EXISTS idx_memories_{_state.replace('-', '_')}
+                  ON memories(valid_from)
+                  WHERE deleted_at IS NULL AND tags LIKE '%"{_state}"%'""")
 
     _exec("""
         CREATE TABLE IF NOT EXISTS config (

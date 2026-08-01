@@ -1,10 +1,76 @@
-"""Reminder utilities for Muninn v2. SQL-precision queries, recurring support, snooze."""
+"""Reminder utilities for Muninn v2. SQL-precision queries, recurring support, snooze.
+
+PARTIAL-INDEX CONTRACT (2026-08-01) — read before editing any query in this file.
+
+Reminder state lives in the `tags` JSON blob, so every lookup here is a
+leading-wildcard `tags LIKE '%"remind-<state>"%'`, which no ordinary index can
+serve. On Turso that degraded into a full remote scan of `memories`: 5,063 rows
+read, ~46 s server-side, which exceeds the 30 s client timeout and so *failed
+boot* rather than merely running slow (the table averages ~1.6 KB per summary,
+so a scan drags the whole table across the wire).
+
+The fix is one partial index per state, keyed on `valid_from`:
+
+    CREATE INDEX idx_memories_remind_<state> ON memories(valid_from)
+    WHERE deleted_at IS NULL AND tags LIKE '%"remind-<state>"%'
+
+Each index materialises only the handful of rows in that state, so the scan
+never happens. Measured on the live DB: 46,190 ms / 5,063 rows read -> 69 ms /
+16 rows read.
+
+TWO CONSTRAINTS THIS IMPOSES ON QUERIES BELOW:
+
+1. SQLite only uses a partial index when it can prove the index's WHERE clause
+   from the query's WHERE clause, which in practice means the query must
+   contain `deleted_at IS NULL AND tags LIKE '%"remind-<state>"%'` as literal
+   AND-ed terms. Keep the tag pattern inline; do NOT parameterise it, do not
+   fold it into a computed expression, and do not relax it to a broader pattern
+   like `'%remind%'` (the planner cannot prove the narrow term implies it).
+
+2. An OR of state predicates defeats the proof entirely — SQLite's OR
+   optimisation will not reason across partial indexes and falls back to a full
+   scan. `remind_list()` therefore issues a UNION ALL of per-state SELECTs, not
+   `WHERE (A OR B)`. Measured: the OR form still took 47,052 ms / 5,079 rows;
+   the UNION ALL form takes 108 ms / 17 rows. If you add a state, add its index
+   to REMIND_STATES and give it its own UNION arm.
+"""
 
 import json, re
 from datetime import datetime, timezone, timedelta
 from scripts import remember as _remember, _exec
 
 UTC = timezone.utc
+
+#: Reminder states that get a dedicated partial index. Order is not significant.
+REMIND_STATES = ("remind-active", "remind-snoozed", "remind-done")
+
+_INDEXES_ENSURED = False
+
+
+def _ensure_remind_indexes():
+    """Idempotently create the per-state partial indexes.
+
+    Self-healing on existing databases: `bootstrap.py` creates these for fresh
+    ones, but deployments that predate 2026-08-01 have the table without them,
+    and the symptom (boot timing out) gives no hint that a DDL step is missing.
+    Runs at most once per process; `CREATE INDEX IF NOT EXISTS` on an index that
+    already exists is a catalogue lookup, not a scan, so the cost is noise.
+
+    Best-effort: a failure here leaves the old slow-but-correct behaviour, so it
+    must never propagate and break a caller.
+    """
+    global _INDEXES_ENSURED
+    if _INDEXES_ENSURED:
+        return
+    _INDEXES_ENSURED = True  # set first: one attempt per process, even on failure
+    for state in REMIND_STATES:
+        try:
+            _exec(
+                f"""CREATE INDEX IF NOT EXISTS idx_memories_{state.replace('-', '_')}
+                    ON memories(valid_from)
+                    WHERE deleted_at IS NULL AND tags LIKE '%"{state}"%'""")
+        except Exception:  # noqa: BLE001, S110 - DDL is best-effort; queries stay correct without it
+            pass
 
 
 def remind(what, due=None, *, kind="nag", recur_days=None, alert_before_days=None, tags=None, priority=1):
@@ -93,6 +159,7 @@ def remind_due(horizon_days=2):
     Returns list of dicts: id, text, valid_from, kind, recur_days, status
     Status values: overdue, due, upcoming (Nd)
     """
+    _ensure_remind_indexes()
     now = datetime.now(UTC)
     now_iso = now.isoformat().replace("+00:00", "Z")
     horizon_iso = (now + timedelta(days=horizon_days)).isoformat().replace("+00:00", "Z")
@@ -149,11 +216,18 @@ def remind_list(include_done=False):
     
     Returns list of dicts: id, text, valid_from, kind, recur_days, state (active|snoozed|done)
     """
-    states = ['"remind-active"', '"remind-snoozed"']
-    if include_done: states.append('"remind-done"')
-    where = " OR ".join(f"tags LIKE '%{s}%'" for s in states)
-    rows = _exec(f"""SELECT id, summary, valid_from, tags FROM memories
-        WHERE deleted_at IS NULL AND ({where}) ORDER BY valid_from ASC""") or []
+    _ensure_remind_indexes()
+    states = ["remind-active", "remind-snoozed"]
+    if include_done: states.append("remind-done")
+    # UNION ALL, not `WHERE (A OR B)` — see the partial-index contract in the
+    # module docstring. The OR form cannot use the per-state indexes and full-
+    # scans the table (47 s); this form is index-served (0.1 s). Rows are
+    # disjoint by construction (a reminder holds exactly one state tag), so
+    # UNION ALL is correct and avoids a dedupe sort.
+    arms = "\n      UNION ALL\n".join(
+        f"""SELECT id, summary, valid_from, tags FROM memories
+        WHERE deleted_at IS NULL AND tags LIKE '%"{s}"%'""" for s in states)
+    rows = _exec(f"{arms}\n      ORDER BY valid_from ASC") or []
     results = []
     for row in rows:
         meta = _parse_meta(row["summary"])
