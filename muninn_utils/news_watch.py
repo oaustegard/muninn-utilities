@@ -76,6 +76,14 @@ def parse_claude_blog(content: str) -> list[dict]:
             continue
         # The nearest date BEFORE the link is the post's date.
         back = content[max(0, m.start() - 600):m.start()]
+        # The featured-list layout at the top of /blog renders the anchor text
+        # as "Read more" rather than the title, which the card-grid layout
+        # further down does not. Both appear on the same page. Recover the real
+        # title from the nearest preceding markdown heading (verified against
+        # live markup 2026-08-01, where this silently produced two posts titled
+        # "Read more").
+        if title.lower() in _BOILERPLATE_ANCHORS:
+            title = _heading_before(back) or title
         last_date = None
         for dm in date_re.finditer(back):
             last_date = dm  # keep the latest (closest to link)
@@ -103,6 +111,20 @@ def _date_to_iso(dmatch) -> Optional[str]:
         return date(year, mon_n, day).isoformat()
     except ValueError:
         return None
+
+
+#: Anchor text that is chrome rather than a title. Lowercased for comparison.
+_BOILERPLATE_ANCHORS = {"read more", "read the post", "learn more", ""}
+
+_HEADING_RE = re.compile(r'^#{1,6}\s+(.+?)\s*$', re.MULTILINE)
+
+
+def _heading_before(back: str) -> Optional[str]:
+    """Nearest markdown heading preceding a link, or None."""
+    last = None
+    for hm in _HEADING_RE.finditer(back):
+        last = hm
+    return last.group(1).strip() if last else None
 
 
 def _extract_category(back: str) -> Optional[str]:
