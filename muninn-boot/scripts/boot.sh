@@ -128,6 +128,21 @@ if [ "${GH_TOKEN:-}" = "proxy-injected" ]; then
        "missing or unreadable. GitHub calls will 401."
 fi
 
+# ── boot-payload fire instrumentation (#84) ──────────────────────────────────
+# config_get() increments fire_count/last_fired for boot_load=1 keys when this
+# is set. Written in boot_ledger v0.1.0 as opt-in and consequently never once
+# switched on: 54 boot-loaded entries, SUM(fire_count)=0, last_fired=NULL as of
+# 2026-08-05. So the ledger has been ranking the entire boot payload on its
+# memory-corpus PROXY — "did this entry's subject show up in logged work" —
+# while the exact counter sat dark. Default it on; a measurement window only
+# accumulates if sessions actually record. Cost is one best-effort, self-
+# silencing UPDATE per config_get on a boot-loaded key. Opt out with
+# MUNINN_INSTRUMENT_FIRES=0.
+case "${MUNINN_INSTRUMENT_FIRES:-1}" in
+  0|false|no) unset MUNINN_INSTRUMENT_FIRES ;;
+  *) export MUNINN_INSTRUMENT_FIRES=1 ;;
+esac
+
 # The proxy key lives in Turso ops config, not an env file. Fetch it directly —
 # we cannot use scripts.config_get yet, since that is what we are sideloading.
 # Best-effort: without it tier 2 is skipped and we fall through to tier 3.
