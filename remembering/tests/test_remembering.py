@@ -468,6 +468,39 @@ def test_boot_returns_string():
     print(f"PASS: Boot returned {len(result)} chars")
 
 
+def test_boot_renders_recent_activity():
+    """Boot must say what the last sessions concluded, not only how long ago.
+
+    The gap line ("Last session activity: 10 minutes ago") is a timestamp with
+    no content; on its own it lets work finished minutes earlier get
+    rediscovered and reported as new. This asserts the section renders and that
+    the loader's type filter holds.
+    """
+    from scripts.boot import _format_boot_output, _load_recent_activity
+
+    rows = [
+        {"id": "abcd1234-0000", "type": "decision", "created_at": "2026-08-08T10:56:00Z",
+         "summary": "Chose the sharded rebuild over the serial one."},
+        {"id": "efgh5678-0000", "type": "anomaly", "created_at": "2026-08-08T11:06:00Z",
+         "summary": "x" * 400},
+    ]
+    out = _format_boot_output([], {}, [], [], {}, recent_activity=rows)
+    assert "# RECENTLY" in out
+    assert "[decision]" in out and "[anomaly]" in out
+    assert "abcd1234" in out
+    # Long summaries are truncated so one verbose memory cannot eat the payload.
+    assert "x" * 400 not in out
+    assert "\u2026" in out
+
+    # Absent/empty input renders nothing rather than an empty header.
+    assert "# RECENTLY" not in _format_boot_output([], {}, [], [], {})
+
+    # The live loader returns only conclusion-bearing types.
+    assert all(m["type"] in ("decision", "anomaly", "procedure", "analysis")
+               for m in _load_recent_activity())
+    print("PASS: boot renders recent activity")
+
+
 def test_retry_logic():
     """Test 18: Retry with backoff works for transient errors"""
     from scripts.turso import _retry_with_backoff
