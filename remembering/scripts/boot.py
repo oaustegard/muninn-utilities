@@ -797,6 +797,10 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     recent_flights = _load_recent_flights()
     _mark("flights")
 
+    # Surface what the last sessions concluded (#19 follow-up)
+    recent_activity = _load_recent_activity()
+    _mark("recent_activity")
+
     # Surface due reminders (#445: use remind_due() from utility)
     try:
         from muninn_utils.remind import remind_due
@@ -815,7 +819,7 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     ops_by_topic, uncategorized = group_ops_by_topic(core_ops)
 
     # Format output with markdown headings
-    result = _format_boot_output(profile_data, ops_by_topic, uncategorized, reference_ops, installed_utils, github_access, pending_tasks, recent_flights, due_reminders)
+    result = _format_boot_output(profile_data, ops_by_topic, uncategorized, reference_ops, installed_utils, github_access, pending_tasks, recent_flights, due_reminders, recent_activity)
     _mark("format")
 
     # Append the one-line manifest-audit summary if available.
@@ -1067,6 +1071,41 @@ def _time_anchor() -> str:
     )
 
 
+def _load_recent_activity(n: int = 8, days: int = 3) -> list:
+    """Load the last few substantive memories, for boot display (#19 follow-up).
+
+    ``_last_session_gap()`` answers *when* the previous session was; this
+    answers *what it was about*. Without it, boot renders a timestamp and no
+    content, and the session opens blind to work finished minutes earlier —
+    which reliably produces rediscovery presented as discovery.
+
+    Scope is deliberately narrow. Only ``decision``/``anomaly``/``procedure``/
+    ``analysis`` — the types that carry a conclusion someone would otherwise
+    re-derive. ``experience`` is excluded because it is dominated by routine
+    session logs, and ``world`` because news snapshots are recalled on demand,
+    not needed to avoid duplicate work.
+
+    ``decisions_recent()`` has been exported and documented as
+    "for loading high-confidence decisions at session start" since v1, and
+    ``boot()`` has never called it. This wires the intent up rather than
+    adding a second unused helper; the widened type filter and the day window
+    are why it is a separate query.
+
+    Best-effort: returns [] on any failure. Never blocks boot.
+    """
+    try:
+        return _exec(
+            "SELECT id, type, summary, created_at FROM memories "
+            "WHERE deleted_at IS NULL AND is_superseded = 0 "
+            "AND type IN ('decision','anomaly','procedure','analysis') "
+            "AND created_at >= datetime('now', ?) "
+            "ORDER BY created_at DESC LIMIT ?",
+            [f'-{days} days', n],
+        ) or []
+    except Exception:
+        return []
+
+
 def _last_session_gap() -> str | None:
     """Return a human-readable "last session activity: ..." line, or None.
 
@@ -1130,13 +1169,16 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
                         installed_utils: dict, github_access: dict = None,
                         pending_tasks: list = None,
                         recent_flights: list = None,
-                        due_reminders: list = None) -> str:
+                        due_reminders: list = None,
+                        recent_activity: list = None) -> str:
     """Format boot output with organized sections.
 
     v3.6.0: Entries within each topic are pre-sorted by priority (descending)
     by group_ops_by_topic(), so critical entries appear first.
     v5.6.0: Added recent_flights for flight log awareness (#415).
     v5.7.0: Added due_reminders for reminder surfacing at boot (#425).
+    Added recent_activity so boot says what the last sessions concluded,
+    not merely how long ago they were.
 
     Args:
         profile_data: List of profile config entries
@@ -1147,6 +1189,7 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
         github_access: Dict from detect_github_access() with GitHub capabilities
         recent_flights: List of recent flight log discussions from GitHub (#415)
         due_reminders: List of dicts from remind_due() with text/status/kind/recur_days (#445)
+        recent_activity: List of recent decision/anomaly/procedure/analysis rows
 
     Returns:
         Formatted boot output string with markdown headings
@@ -1162,6 +1205,18 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
     gap = _last_session_gap()
     if gap:
         output.append(gap)
+
+    # ...and what those sessions concluded. Placed against the gap line on
+    # purpose: a timestamp with no content is what lets minutes-old work get
+    # rediscovered and reported as new.
+    if recent_activity:
+        output.append("\n# RECENTLY (last 3 days — recall before re-deriving)")
+        for m in recent_activity:
+            line = ' '.join((m.get('summary') or '').split())
+            if len(line) > 140:
+                line = line[:139] + '\u2026'
+            output.append(f"  - [{m.get('type','?')}] {(m.get('created_at') or '')[:10]}"
+                          f" {line} ({(m.get('id') or '')[:8]})")
 
     # Profile section
     if profile_data:
