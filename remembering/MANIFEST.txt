@@ -11,14 +11,17 @@ muninn_utils/boot_ledger.py
 muninn_utils/bsky_card.py
 muninn_utils/bsky_limit.py
 muninn_utils/bsky_moderation.py
+muninn_utils/capability_model.py
 muninn_utils/correction_gate.py
 muninn_utils/correction_gate_benchmark.json
 muninn_utils/flowing.py
+muninn_utils/gemini_mini_muninn.py
 muninn_utils/gh_proxy.py
 muninn_utils/gh_status.py
 muninn_utils/github_rw.py
 muninn_utils/issue_close.py
 muninn_utils/memory_tfidf.py
+muninn_utils/mini_muninn.py
 muninn_utils/news_watch.py
 muninn_utils/perch_publish.py
 muninn_utils/perch_triage.py
@@ -32,6 +35,7 @@ muninn_utils/strava.py
 muninn_utils/survey.py
 muninn_utils/task_policy.py
 muninn_utils/use_when.json
+muninn_utils/validate_fields.py
 muninn_utils/verify_patch.py
 muninn_utils/zeitgeist_delta.py
 remembering/SKILL.md
