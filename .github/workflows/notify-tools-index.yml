@@ -5,12 +5,23 @@ name: Notify tools.json sync
 # .well-known/tools.json promptly. The daily schedule there is the backstop;
 # this is the prompt-sync path.
 #
-# Uses the secret MUNINN_SITE_DISPATCH_PAT — a classic PAT with `repo`
-# scope on oaustegard/muninn.austegard.com. If the secret is ABSENT the step
-# warns and skips (the site repo's daily scheduled rebuild is the backstop —
-# only prompt-sync latency is lost). If the secret is PRESENT but the dispatch
-# fails (expired/under-scoped PAT, API error), the step fails loudly — a
-# silently-broken sync is the failure mode worth catching.
+# Uses the secret MUNINN_SITE_DISPATCH_PAT — a FINE-GRAINED PAT with
+# Repository access limited to oaustegard/muninn.austegard.com and the single
+# permission Contents: Read and write. (repository_dispatch is governed by
+# Contents; there is no separate dispatch permission.)
+#
+# This comment used to say "a classic PAT with `repo` scope on
+# oaustegard/muninn.austegard.com". That is not a thing a classic PAT can do:
+# classic scopes are account-wide, so `repo` would hand this workflow write
+# access to EVERY repo the owner can reach in order to POST one dispatch to
+# one repo. The fine-grained token above is the least-privilege equivalent and
+# is what the secret should hold.
+#
+# If the secret is ABSENT the step warns and skips (the site repo's daily
+# scheduled rebuild is the backstop — only prompt-sync latency is lost). If the
+# secret is PRESENT but the dispatch fails (expired/under-scoped PAT, API
+# error), the step fails loudly — a silently-broken sync is the failure mode
+# worth catching.
 on:
   push:
     branches: ["main"]
@@ -31,12 +42,15 @@ jobs:
           if [ -z "$PAT" ]; then
             echo "::warning::MUNINN_SITE_DISPATCH_PAT not set — skipping prompt-sync dispatch." >&2
             echo "The site repo's daily scheduled rebuild remains the backstop." >&2
-            echo "To enable prompt sync, add a 'repo'-scoped classic PAT as MUNINN_SITE_DISPATCH_PAT." >&2
+            echo "To enable prompt sync, add MUNINN_SITE_DISPATCH_PAT: a fine-grained PAT," >&2
+            echo "owner oaustegard, Repository access = only oaustegard/muninn.austegard.com," >&2
+            echo "Permissions = Contents: Read and write. Do NOT use a classic PAT — its" >&2
+            echo "scopes are account-wide and cannot be limited to the one repo." >&2
             exit 0
           fi
           curl -sS -f -X POST \
             -H "User-Agent: muninn-utilities-ci" \
-            -H "Authorization: token $PAT" \
+            -H "Authorization: Bearer $PAT" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/oaustegard/muninn.austegard.com/dispatches" \
             -d '{"event_type":"manifests-changed"}'
