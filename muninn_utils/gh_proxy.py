@@ -59,6 +59,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.github.com"
@@ -250,11 +251,47 @@ def _ok(status: int, payload, what: str):
     return payload
 
 
+def _existing_modes(repo: str, tree_sha: str, paths) -> dict:
+    """Map {path: mode} for paths that already exist under tree_sha.
+
+    The Git Data API has no "keep the current mode" option — every tree entry
+    must state one — so a writer that hardcodes 100644 silently strips the
+    executable bit off any script it touches. One tree read per distinct
+    directory recovers the real modes. A recursive whole-tree read would be
+    fewer calls but returns truncated=true on large repos, which fails silently
+    in exactly the same way.
+    """
+    modes: dict = {}
+    dirs: dict = {}
+    for path in paths:
+        head, _, name = path.rpartition("/")
+        dirs.setdefault(head, []).append(name)
+    for head, names in dirs.items():
+        ref = tree_sha
+        if head:
+            ref = f"{tree_sha}:{urllib.parse.quote(head)}"
+        status, tree = rest(f"/repos/{repo}/git/trees/{ref}")
+        if status != 200 or not isinstance(tree, dict):
+            continue  # new directory; callers fall back to the default mode
+        entries = {t["path"]: t.get("mode") for t in tree.get("tree", [])
+                   if t.get("type") == "blob"}
+        for name in names:
+            mode = entries.get(name)
+            if mode:
+                modes[f"{head}/{name}" if head else name] = mode
+    return modes
+
+
 def commit_files(repo: str, branch: str, files: dict, message: str,
-                 base: str = "main", *, new_branch: bool = True) -> dict:
+                 base: str = "main", *, new_branch: bool = True,
+                 modes: dict | None = None) -> dict:
     """Commit a set of files atomically via the Git Data API.
 
     files: {path: str_contents} — bytes are also accepted.
+    modes: {path: '100755'} to force a file mode. Any path not listed keeps the
+    mode it already has at `base`, and new files default to 100644. Without
+    this, updating an executable script demotes it to 100644 and the next
+    caller gets "Permission denied" with exit 126 (claude-skills PR #765).
     Creates `branch` off `base` when new_branch, else commits onto existing branch.
     Returns {'commit': sha, 'branch': branch, 'url': ...}.
 
@@ -269,6 +306,10 @@ def commit_files(repo: str, branch: str, files: dict, message: str,
     _, base_commit = rest(f"/repos/{repo}/git/commits/{base_sha}")
     base_tree = base_commit["tree"]["sha"]
 
+    modes = dict(modes or {})
+    inherited = _existing_modes(repo, base_tree,
+                               [p for p in files if p not in modes])
+
     tree_entries = []
     for path, content in files.items():
         if isinstance(content, str):
@@ -276,7 +317,8 @@ def commit_files(repo: str, branch: str, files: dict, message: str,
         status, blob = rest(f"/repos/{repo}/git/blobs", "POST", {
             "content": base64.b64encode(content).decode(), "encoding": "base64"})
         _ok(status, blob, f"create blob {path}")
-        tree_entries.append({"path": path, "mode": "100644", "type": "blob",
+        mode = modes.get(path) or inherited.get(path) or "100644"
+        tree_entries.append({"path": path, "mode": mode, "type": "blob",
                              "sha": blob["sha"]})
 
     status, tree = rest(f"/repos/{repo}/git/trees", "POST",

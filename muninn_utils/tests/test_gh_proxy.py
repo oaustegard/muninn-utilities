@@ -212,3 +212,88 @@ class TestProxyKeyParsing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestCommitFileModes(unittest.TestCase):
+    """PR #765: commit_files hardcoded 100644 and demoted an executable script,
+    so the workflow that ran it died with exit 126 before its first line."""
+
+    BASE_TREE = "t0"
+
+    def _fake_rest(self, calls, dir_tree):
+        def fake(path, method="GET", body=None, **kw):
+            calls.append((method, path, body))
+            if path.endswith("/git/ref/heads/main"):
+                return 200, {"object": {"sha": "c0"}}
+            if "/git/commits/c0" in path:
+                return 200, {"tree": {"sha": self.BASE_TREE}}
+            if "/git/trees/" in path and method == "GET":
+                key = path.split("/git/trees/")[1]
+                if key not in dir_tree:
+                    return 404, {"message": "Not Found"}
+                return 200, {"tree": dir_tree[key]}
+            if path.endswith("/git/blobs"):
+                return 201, {"sha": "b1"}
+            if path.endswith("/git/trees"):
+                return 201, {"sha": "t1"}
+            if path.endswith("/git/commits"):
+                return 201, {"sha": "c1"}
+            if "/git/refs" in path:
+                return 201, {"ref": "refs/heads/wip"}
+            raise AssertionError(f"unexpected call {method} {path}")
+        return fake
+
+    def _run(self, files, dir_tree, **kw):
+        calls = []
+        with mock.patch.object(gh_proxy, "rest",
+                               side_effect=self._fake_rest(calls, dir_tree)):
+            gh_proxy.commit_files("o/r", "wip", files, "msg", **kw)
+        created = next(b for m, p, b in calls
+                       if m == "POST" and p.endswith("/git/trees"))
+        return {e["path"]: e["mode"] for e in created["tree"]}
+
+    def test_executable_bit_preserved(self):
+        dir_tree = {f"{self.BASE_TREE}:.github/scripts": [
+            {"path": "run.sh", "type": "blob", "mode": "100755"}]}
+        entries = self._run({".github/scripts/run.sh": "#!/bin/bash\n"}, dir_tree)
+        self.assertEqual(entries[".github/scripts/run.sh"], "100755")
+
+    def test_non_executable_stays_100644(self):
+        dir_tree = {f"{self.BASE_TREE}:docs": [
+            {"path": "a.md", "type": "blob", "mode": "100644"}]}
+        entries = self._run({"docs/a.md": "hi"}, dir_tree)
+        self.assertEqual(entries["docs/a.md"], "100644")
+
+    def test_new_file_defaults_to_100644(self):
+        entries = self._run({"docs/new.md": "hi"}, {})
+        self.assertEqual(entries["docs/new.md"], "100644")
+
+    def test_root_level_path_uses_base_tree(self):
+        dir_tree = {self.BASE_TREE: [
+            {"path": "boot.sh", "type": "blob", "mode": "100755"}]}
+        entries = self._run({"boot.sh": "#!/bin/sh\n"}, dir_tree)
+        self.assertEqual(entries["boot.sh"], "100755")
+
+    def test_explicit_mode_overrides_and_skips_lookup(self):
+        entries = self._run({"x.sh": "#!/bin/sh\n"}, {},
+                            modes={"x.sh": "100755"})
+        self.assertEqual(entries["x.sh"], "100755")
+
+    def test_one_tree_read_per_directory(self):
+        calls = []
+        dir_tree = {f"{self.BASE_TREE}:d": [
+            {"path": "a.sh", "type": "blob", "mode": "100755"},
+            {"path": "b.sh", "type": "blob", "mode": "100755"}]}
+        with mock.patch.object(gh_proxy, "rest",
+                               side_effect=self._fake_rest(calls, dir_tree)):
+            gh_proxy.commit_files("o/r", "wip",
+                                  {"d/a.sh": "x", "d/b.sh": "y"}, "msg")
+        reads = [p for m, p, _ in calls
+                 if m == "GET" and "/git/trees/" in p]
+        self.assertEqual(len(reads), 1, reads)
+
+    def test_symlink_mode_preserved(self):
+        dir_tree = {f"{self.BASE_TREE}:d": [
+            {"path": "link", "type": "blob", "mode": "120000"}]}
+        entries = self._run({"d/link": "../target"}, dir_tree)
+        self.assertEqual(entries["d/link"], "120000")
