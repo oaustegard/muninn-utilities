@@ -125,11 +125,95 @@ That collapses parity risk down to four things, all small and all testable:
    ordering, topic grouping and priority sorting. It is the single largest chunk of real
    porting work, and the one most likely to drift silently.
 
-**Open verification gate:** no FTS trigger definitions exist in this repo, which implies
-`memory_fts` is maintained DB-side (external-content table + triggers created
-out-of-band). If that holds, green does not maintain FTS at all. *Confirm against the
-live DB before writing a line of green* — if Python is somehow responsible for FTS
-sync, the write path gets materially harder.
+### Verification gate — CLOSED, verified against the live DB
+
+The gate was: no FTS trigger definitions exist in this repo, so either `memory_fts` is
+maintained DB-side (fine) or Python is somehow responsible for it (materially harder).
+
+**It is maintained DB-side.** Three triggers on `memories`, none of them in this repo:
+
+```sql
+memories_fts_ai  AFTER INSERT ON memories
+                 → INSERT INTO memory_fts (id, summary, tags)
+                   VALUES (NEW.id, NEW.summary,
+                           (SELECT GROUP_CONCAT(value,' ') FROM json_each(NEW.tags)))
+
+memories_fts_au  AFTER UPDATE ON memories WHEN NEW.deleted_at IS NULL
+                 → DELETE then re-INSERT that row's index entry
+
+memories_fts_sd  AFTER UPDATE OF deleted_at ON memories
+                 WHEN NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL
+                 → DELETE FROM memory_fts WHERE id = OLD.id
+```
+
+**Green does not maintain FTS at all.** It inserts into `memories` and the index follows.
+That is the write path's cheapest possible shape, and it holds.
+
+Three further facts fell out of the probe, all of which change something:
+
+**The tokenizer is `porter unicode61` with no `tokenchars`.**
+
+```sql
+CREATE VIRTUAL TABLE memory_fts USING fts5(
+    id UNINDEXED, summary, tags, tokenize='porter unicode61')
+```
+
+This is *not* Sage's configuration. Sage uses `tokenchars '-_/+#.'`, which makes `.` and
+`-` word characters and forces `fts.ts` to quote every term and prefix-wildcard the last.
+Muninn's tokenizer treats them as separators, so `fts.ts` must **not** be copied across —
+the escaping requirement here is `_escape_fts5_server()`'s, and it is a different problem.
+Porter stemming also means green inherits stem-based matching for free, and must not
+"helpfully" add wildcards that would defeat it.
+
+**The index is healthy, and there is a real if tiny bug.** Of 2878 live memories, 0 are
+missing from the index and 0 ids are duplicated — but the index carries 2880 rows. The two
+extras are ghosts: entries whose memory no longer exists.
+
+The cause is a gap in the trigger set — **there is no `AFTER DELETE` trigger.** Soft
+deletes are covered by `memories_fts_sd`; a hard `DELETE FROM memories` leaves its index
+row behind forever. Nothing in `remembering/scripts/` ever hard-deletes a memory, so
+these two came from ad-hoc `_exec()` SQL — which makes this *latent* today and *active*
+the moment `muninnd` starts pruning on a cron. Add the trigger before that Worker exists;
+it is four lines and it closes the hole permanently.
+
+**`memories_fts_au` fires on every column update, not just `summary`/`tags`.** Its `WHEN`
+clause tests only `deleted_at`, so an `access_count`/`last_accessed` bump from
+`_update_access_tracking()` — a *read*-path side effect — deletes and re-inserts that
+row's FTS entry. The corpus has 134,924 recorded accesses across 4,862 rows, every one of
+which paid for a full index round-trip on what the caller experienced as a search.
+Narrowing the trigger to `AFTER UPDATE OF summary, tags ON memories` removes the churn
+without changing behaviour. Worth doing before green doubles the read traffic.
+
+Both fixes, concretely — a schema change to the live DB, so run it deliberately:
+
+```sql
+-- 1. close the hard-delete hole
+CREATE TRIGGER memories_fts_ad AFTER DELETE ON memories
+BEGIN
+    DELETE FROM memory_fts WHERE id = OLD.id;
+END;
+
+-- 2. stop read-path access tracking from re-indexing
+DROP TRIGGER memories_fts_au;
+CREATE TRIGGER memories_fts_au AFTER UPDATE OF summary, tags ON memories
+WHEN NEW.deleted_at IS NULL
+BEGIN
+    DELETE FROM memory_fts WHERE id = OLD.id;
+    INSERT INTO memory_fts (id, summary, tags)
+    VALUES (NEW.id, NEW.summary,
+            (SELECT GROUP_CONCAT(value, ' ') FROM json_each(NEW.tags)));
+END;
+
+-- 3. sweep the two existing ghosts
+DELETE FROM memory_fts
+WHERE id NOT IN (SELECT id FROM memories WHERE deleted_at IS NULL);
+```
+
+Note the ordering constraint on (2): narrowing `memories_fts_au` means an `UPDATE` that
+*un*-soft-deletes a row no longer re-indexes it, because `deleted_at` is no longer in the
+watched column list. Nothing currently un-deletes — `forget()` is one-way — but if that
+ever changes, `deleted_at` has to come back into the `OF` list or undelete stops being
+searchable.
 
 ---
 
@@ -311,9 +395,12 @@ SQL and widen the tool set to cover the analysis cases. (b) is the pragmatic def
 
 From Sage's CLAUDE.md, the ones that transfer:
 
-- **FTS tokenizer.** Sage uses `unicode61 tokenchars '-_/+#.'`; Muninn uses the Porter
-  stemmer. Different config, same class of failure. Never pass raw user input to `MATCH`
-  — `_escape_fts5_server()` is not optional in the port.
+- **FTS tokenizer.** Sage uses `unicode61 tokenchars '-_/+#.'`; Muninn uses
+  `porter unicode61` with no `tokenchars` (verified — see §3). Same class of failure,
+  opposite configuration, so **do not port `fts.ts`** — its quoting and prefix-wildcard
+  logic exists to defeat a tokenizer Muninn does not have, and applying it here would
+  work against Porter stemming. Never pass raw user input to `MATCH`;
+  `_escape_fts5_server()` is not optional in the port.
 - **Worker-to-Worker same-zone (error 1042).** Only bites if `muninn-mcp` calls another
   Worker. It talks to Turso directly, so this should not apply — but if `muninnd` ever
   calls the MCP Worker, it needs a service binding, not a URL.
@@ -328,6 +415,11 @@ Muninn-specific:
   Python layer has (`_retry_with_backoff`), or the first call of every idle period fails.
 - **`.well-known/install-manifests.json`** and the `claude-skills` mirror workflow both
   reference the skill layout. Stage 4 has to touch them.
+- **The FTS trigger set has no `AFTER DELETE`** (§3). Harmless while every deletion is
+  soft, and a silent index-corruption source the moment `muninnd` prunes on a schedule.
+  Fix it before that Worker ships, not after.
+- **`memories_fts_au` re-indexes on any column change** (§3), so read-path access
+  tracking churns the FTS index. Narrow it to `AFTER UPDATE OF summary, tags`.
 
 ---
 
