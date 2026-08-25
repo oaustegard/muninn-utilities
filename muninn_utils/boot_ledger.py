@@ -255,6 +255,20 @@ class Memory:
     terms: set[str]     # pre-extracted content terms
 
 
+DISPATCH_RE = re.compile(r"config_get\(\s*['\"]([A-Za-z0-9_-]+)['\"]")
+
+
+def dispatch_targets(value: str, key: str = "") -> set[str]:
+    """Reference keys a boot entry tells the session to ``config_get``.
+
+    A boot-loaded trigger's own fire_count stays near zero however well it
+    works, because its text is already in context and nothing re-reads it. The
+    observable event is the payload read it dispatches to. Parsing the dispatch
+    out of the trigger text lets that read be attributed back here.
+    """
+    return {m for m in DISPATCH_RE.findall(value or "") if m != key}
+
+
 @dataclass
 class Entry:
     key: str
@@ -278,6 +292,8 @@ class LedgerRow:
     recent_hits: int            # hits in the most recent month bucket present
     logged_fires: int
     last_fired: str | None
+    dispatch: tuple[str, ...]   # reference keys this entry dispatches to
+    attributed_fires: int       # own fires + fires of its dispatch targets
     chars_per_hit: float        # ranking metric: high = costly, rarely relevant
 
     def to_dict(self) -> dict:
@@ -291,7 +307,8 @@ class LedgerRow:
 # ── core computation (pure) ──────────────────────────────────────────────────
 
 def build_ledger(entries: Sequence[Entry], memories: Sequence[Memory],
-                 overrides: dict[str, list[str]] | None = None) -> list[LedgerRow]:
+                 overrides: dict[str, list[str]] | None = None,
+                 fire_counts: dict[str, int] | None = None) -> list[LedgerRow]:
     """Join boot entries against the memory corpus into ranked rows.
 
     Ranked by ``chars_per_hit`` descending so the most expensive-per-use entries
@@ -315,6 +332,9 @@ def build_ledger(entries: Sequence[Entry], memories: Sequence[Memory],
                 if m.month == latest_month:
                     recent += 1
         tokens = estimate_tokens(e.value) if e.value else (e.chars + 3) // 4
+        dispatch = tuple(sorted(dispatch_targets(e.value, e.key)))
+        attributed = e.logged_fires + sum(
+            (fire_counts or {}).get(t, 0) for t in dispatch)
         rows.append(LedgerRow(
             key=e.key,
             category=e.category,
@@ -325,6 +345,8 @@ def build_ledger(entries: Sequence[Entry], memories: Sequence[Memory],
             hits=hits,
             months=len(hit_months),
             recent_hits=recent,
+            dispatch=dispatch,
+            attributed_fires=attributed,
             logged_fires=e.logged_fires,
             last_fired=e.last_fired,
             # 0 hits ⇒ infinite cost/fire: never-referenced sorts to the top of
@@ -337,14 +359,14 @@ def build_ledger(entries: Sequence[Entry], memories: Sequence[Memory],
 
 
 def demotion_candidates(rows: Sequence[LedgerRow], *, min_chars: int = 400) -> list[LedgerRow]:
-    """Trigger/ops rows that never fired in the corpus and are big enough to be
+    """Trigger/ops rows that never fired (own OR dispatched) and are big enough to be
     worth reclaiming. Identity/catalog rows are excluded — they are not demoted
     on a fire count. Conservative by design: this proposes, a human disposes."""
     return [
         r for r in rows
         if r.kind in ("trigger", "ops")
         and r.hits == 0
-        and r.logged_fires == 0
+        and r.attributed_fires == 0
         and r.chars >= min_chars
     ]
 
@@ -353,15 +375,16 @@ def demotion_candidates(rows: Sequence[LedgerRow], *, min_chars: int = 400) -> l
 
 def render_table(rows: Sequence[LedgerRow]) -> str:
     hdr = ("| rank | key | kind | chars | tokens | hits | months | recent | "
-           "logged | chars/hit | terms |")
-    sep = "|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|"
+           "logged | attr | dispatch | chars/hit | terms |")
+    sep = "|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|--:|---|"
     lines = [hdr, sep]
     for i, r in enumerate(rows, 1):
         cph = "∞(0 hits)" if r.hits == 0 else f"{r.chars_per_hit:g}"
         terms = "curated" if r.curated_terms else "auto"
         lines.append(
             f"| {i} | `{r.key}` | {r.kind} | {r.chars} | {r.tokens} | {r.hits} "
-            f"| {r.months} | {r.recent_hits} | {r.logged_fires} | {cph} | {terms} |"
+            f"| {r.months} | {r.recent_hits} | {r.logged_fires} | "
+            f"{r.attributed_fires} | {', '.join(r.dispatch) or '—'} | {cph} | {terms} |"
         )
     return "\n".join(lines)
 
@@ -378,7 +401,7 @@ def summarize(rows: Sequence[LedgerRow], corpus_months: int, corpus_size: int) -
         f"- Corpus sampled: **{corpus_size:,} active memories across {corpus_months} months**",
         f"- Never referenced in corpus: **{len(never)}** entries "
         f"({sum(r.chars for r in never):,} chars)",
-        f"- Demotion candidates (trigger/ops, 0 fires, ≥400 chars): "
+        f"- Demotion candidates (trigger/ops, 0 attributed fires, ≥400 chars): "
         f"**{len(demote)}** — {', '.join('`'+r.key+'`' for r in demote) or 'none'}",
         f"- Identity/always-on (not demotable): **{len(ident)}** "
         f"({sum(r.chars for r in ident):,} chars)",
@@ -414,6 +437,21 @@ def load_boot_entries(exec_fn: Callable | None = None) -> list[Entry]:
     return out
 
 
+def load_fire_counts(exec_fn: Callable | None = None) -> dict[str, int]:
+    """``fire_count`` for EVERY config key, not just boot-loaded ones.
+
+    Dispatch targets are reference entries (``boot_load = 0``), so their counts
+    have to be loaded separately from the boot entries in order to attribute
+    them. Returns ``{}`` on a pre-migration DB with no ``fire_count`` column.
+    """
+    _exec = exec_fn or _live_exec()
+    cols = {c["name"] for c in _exec("PRAGMA table_info(config)")}
+    if "fire_count" not in cols:
+        return {}
+    rows = _exec("SELECT key, fire_count FROM config WHERE fire_count IS NOT NULL")
+    return {r["key"]: int(r["fire_count"]) for r in rows}
+
+
 def load_memory_corpus(exec_fn: Callable | None = None) -> list[Memory]:
     """Active (non-deleted) memories projected to (month, content-terms)."""
     _exec = exec_fn or _live_exec()
@@ -447,7 +485,8 @@ def report(exec_fn: Callable | None = None, as_json: bool = False) -> str:
     """Full instrument run against live Turso (or an injected exec_fn)."""
     entries = load_boot_entries(exec_fn)
     memories = load_memory_corpus(exec_fn)
-    rows = build_ledger(entries, memories)
+    rows = build_ledger(entries, memories,
+                        fire_counts=load_fire_counts(exec_fn))
     corpus_months = len({m.month for m in memories if m.month})
     if as_json:
         return json.dumps({
@@ -466,8 +505,11 @@ def report(exec_fn: Callable | None = None, as_json: bool = False) -> str:
         + "\n\n## Ranked table (worst cost/fire first)\n\n"
         + render_table(rows)
         + "\n\n_Fire rate is a memory-corpus reference proxy (no config_get log "
-        "exists yet); `logged` is the exact go-forward counter, 0 until "
-        "`MUNINN_INSTRUMENT_FIRES=1` has run for a window. `terms=auto` rows use "
+        "exists yet). `logged` counts config_get on the entry ITSELF; `attr` adds "
+        "the fires of the reference keys it dispatches to, which is the real "
+        "signal for a trigger — a working trigger is never config_get'd, its "
+        "payload is. Both are 0 until `MUNINN_INSTRUMENT_FIRES=1` has run for a "
+        "window. `terms=auto` rows use "
         "key-derived match terms (lower precision) — add a curated entry to "
         "`DOMAIN_TERMS` to tighten them._\n"
     )

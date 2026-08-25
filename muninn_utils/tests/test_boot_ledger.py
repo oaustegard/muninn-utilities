@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import pytest
 
+from muninn_utils import boot_ledger as bl
+
 from muninn_utils.boot_ledger import (
     Entry,
     Memory,
@@ -195,3 +197,79 @@ def test_load_memory_corpus_projects_month_and_terms():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── fire attribution (#84 follow-up: the counter was blind by construction) ──
+
+def test_dispatch_targets_parses_trigger_text_and_skips_self():
+    txt = ("GITHUB WORK — DESIRE TRIGGER\n"
+           "→ FIRST tool call: config_get('github-procedures'). NOT optional.\n"
+           "see also config_get(\"spoke-registry\") and config_get('github-routing')")
+    assert bl.dispatch_targets(txt, key="github-routing") == {
+        "github-procedures", "spoke-registry"}
+
+
+def test_dispatch_targets_empty_when_no_dispatch():
+    assert bl.dispatch_targets("Voice: Corvid. Lead with the answer.", "voice") == set()
+    assert bl.dispatch_targets("", "x") == set()
+
+
+def _entry(key, value="", fires=0, category="ops", chars=None):
+    return bl.Entry(key=key, category=category,
+                    chars=chars if chars is not None else len(value),
+                    value=value, logged_fires=fires)
+
+
+def test_payload_fires_attribute_back_to_the_dispatching_trigger():
+    """A working trigger is never config_get'd — its payload is. The trigger's
+    own count stays 0; attribution is what makes it visible."""
+    trigger = _entry("github-routing",
+                     "when a repo URL appears → config_get('github-procedures')" + "x" * 500)
+    rows = bl.build_ledger([trigger], [], fire_counts={"github-procedures": 9})
+    row = rows[0]
+    assert row.logged_fires == 0          # unchanged: nobody re-reads the trigger
+    assert row.attributed_fires == 9      # the payload read is the evidence
+    assert row.dispatch == ("github-procedures",)
+
+
+def test_attribution_sums_own_and_dispatched_fires():
+    e = _entry("public-prose-trigger",
+               "config_get('muninn-voice-signature') then config_get('blog-post-platform')",
+               fires=2)
+    rows = bl.build_ledger([e], [], fire_counts={
+        "muninn-voice-signature": 5, "blog-post-platform": 3})
+    assert rows[0].attributed_fires == 10
+
+
+def test_build_ledger_without_fire_counts_is_backward_compatible():
+    e = _entry("thesis-discipline", "config_get('thesis-discipline-check')", fires=4)
+    rows = bl.build_ledger([e], [])
+    assert rows[0].attributed_fires == rows[0].logged_fires == 4
+
+
+def test_demotion_spares_a_trigger_whose_payload_fired():
+    big = "config_get('backend-impl-protocol')" + "y" * 600
+    e = _entry("backend-impl-trigger", big)
+    fired = bl.build_ledger([e], [], fire_counts={"backend-impl-protocol": 1})
+    assert bl.demotion_candidates(fired) == []
+    silent = bl.build_ledger([e], [], fire_counts={})
+    assert [r.key for r in bl.demotion_candidates(silent)] == ["backend-impl-trigger"]
+
+
+def test_load_fire_counts_tolerates_pre_migration_db():
+    def fake_exec(sql, args=None):
+        if "PRAGMA" in sql:
+            return [{"name": "key"}, {"name": "value"}, {"name": "boot_load"}]
+        raise AssertionError("must not query fire_count without the column")
+    assert bl.load_fire_counts(fake_exec) == {}
+
+
+def test_load_fire_counts_reads_every_key_not_just_boot_loaded():
+    def fake_exec(sql, args=None):
+        if "PRAGMA" in sql:
+            return [{"name": "key"}, {"name": "fire_count"}]
+        assert "boot_load" not in sql, "reference keys must not be filtered out"
+        return [{"key": "github-procedures", "fire_count": 7},
+                {"key": "bike-coach-protocol", "fire_count": 4}]
+    assert bl.load_fire_counts(fake_exec) == {
+        "github-procedures": 7, "bike-coach-protocol": 4}

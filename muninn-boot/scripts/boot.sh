@@ -138,9 +138,20 @@ fi
 # accumulates if sessions actually record. Cost is one best-effort, self-
 # silencing UPDATE per config_get on a boot-loaded key. Opt out with
 # MUNINN_INSTRUMENT_FIRES=0.
+# Exporting alone is not enough: this shell dies when boot.sh returns, and
+# boot() itself reads config by bulk SELECT rather than config_get, so it would
+# count nothing anyway. Every LATER bash call is a fresh shell that sources
+# Turso.env as its standing preamble — so the flag has to live in that file to
+# survive. Appended idempotently; this is what the project-instructions prose
+# used to do by hand, which meant a session that skipped the step measured
+# nothing and looked identical to one that measured zero.
 case "${MUNINN_INSTRUMENT_FIRES:-1}" in
   0|false|no) unset MUNINN_INSTRUMENT_FIRES ;;
-  *) export MUNINN_INSTRUMENT_FIRES=1 ;;
+  *) export MUNINN_INSTRUMENT_FIRES=1
+     if [ -w "$PROJECT_DIR/Turso.env" ] &&
+        ! grep -q '^MUNINN_INSTRUMENT_FIRES=' "$PROJECT_DIR/Turso.env" 2>/dev/null; then
+       echo 'MUNINN_INSTRUMENT_FIRES=1' >> "$PROJECT_DIR/Turso.env"
+     fi ;;
 esac
 
 # The proxy key lives in Turso ops config, not an env file. Fetch it directly —

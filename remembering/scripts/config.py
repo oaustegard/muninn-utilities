@@ -22,18 +22,28 @@ from .aliases import accept_aliases
 def config_fire(key: str) -> None:
     """Record that a boot-loaded config entry fired (was config_get'd).
 
-    Increments ``fire_count`` and stamps ``last_fired`` — but only for
-    boot-loaded keys, so payload/reference reads don't inflate the counter. This
-    is the exact go-forward replacement for boot_ledger's memory-corpus fire
-    proxy (#84). Best-effort and self-silencing: a missing column (pre-migration
-    DB) or any write error is swallowed, because instrumentation must never
-    break a read. One statement, no extra round-trip beyond the UPDATE.
+    Increments ``fire_count`` and stamps ``last_fired`` on ANY key. The exact
+    go-forward replacement for boot_ledger's memory-corpus fire proxy (#84).
+
+    This used to filter ``AND boot_load = 1``, which made the counter blind to
+    the event it existed to measure. Boot-loaded triggers are dispatch lines —
+    their text is already in context, so nobody ever ``config_get``s them. What
+    a firing trigger produces is a read of its REFERENCE payload
+    (``github-routing`` fires -> ``config_get('github-procedures')``), and
+    ``github-procedures`` has ``boot_load = 0``. Measured over the 2026-08
+    window: 17 of 56 boot entries dispatch to a reference key, and the whole
+    window logged 7 fires. Recording every key lets boot_ledger attribute a
+    payload read back to the trigger that dispatched to it.
+
+    Best-effort and self-silencing: a missing column (pre-migration DB) or any
+    write error is swallowed, because instrumentation must never break a read.
+    One statement, no extra round-trip beyond the UPDATE.
     """
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     try:
         _exec(
             "UPDATE config SET fire_count = COALESCE(fire_count, 0) + 1, "
-            "last_fired = ? WHERE key = ? AND boot_load = 1",
+            "last_fired = ? WHERE key = ?",
             [now, key],
         )
     except Exception:
