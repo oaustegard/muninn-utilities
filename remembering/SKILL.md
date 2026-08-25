@@ -1,8 +1,8 @@
 ---
 name: remembering
-description: Advanced memory operations reference. Basic patterns (profile loading, simple recall/remember) are in project instructions. Consult this skill for background writes, memory versioning, complex queries, edge cases, session scoping, retention management, type-safe results, proactive memory hints, GitHub access detection, autonomous curation, episodic scoring, and decision traces.
+description: Cross-session memory operations against the Turso store — the advanced half; plain profile loading and simple recall/remember are already in project instructions. Use for "store this correction so future sessions have it", "what did we decide about X", "supersede or forget a memory that is now wrong", "search my long-term notes", "write a memory with tags and priority", "consolidate or prune the store", "save a checkpoint and resume it next session", or any question about a remember/recall/config/journal signature and its edge cases. Covers background writes, supersede chains, time-windowed and multi-tag queries, batch APIs, session scoping, retention and curation, episodic scoring, decision traces, and task discipline. Not for notes about the session currently in progress (use session-memory) and not for ranking documents or code by relevance (bm25).
 metadata:
-  version: 5.12.0
+  version: 5.13.0
 ---
 
 # Remembering - Advanced Operations
@@ -10,6 +10,30 @@ metadata:
 **Basic patterns are in project instructions.** This skill covers advanced features and edge cases.
 
 For development context, see [references/CLAUDE.md](references/CLAUDE.md).
+
+## What this store is for, and what it is not for
+
+Memory serves **preference and decision alignment, and this system's own
+history** — how Oskar wants a thing done, what was already decided, what got
+corrected. It is not a knowledge base for general engineering.
+
+Reaching for `recall()` to *solve* a general task is the variance-adding
+failure mode: a stale prior overrides fresh evidence already in front of you.
+Model weights carry knowledge; this store carries "how we do it here, and why".
+Confirmed by Oskar against an N=15 audit, 2026-07-05. Correct silence through a
+general task is the design working, not a missed lookup.
+
+Recall **before** responding when proper nouns, project names, or prior-session
+topics appear, and when a prior correction might exist for the task at hand.
+Speculating where a memory exists is the opposite failure, and the more common
+one.
+
+Fetch mutable remote state rather than recalling it. A PR's open/closed status,
+a branch's existence, a CI result — memory records the decision about them, not
+their current value. Diagnosed 2026-04-27, recurred 2026-06-04.
+
+This boundary previously lived only in boot ops, so it never reached anyone who
+read the skill on its own. Duplicated here deliberately.
 
 ## Two-Table Architecture
 
