@@ -61,6 +61,7 @@ v0.1.0: Initial release (issue #84).
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Callable, Iterable, Sequence
@@ -358,6 +359,64 @@ def build_ledger(entries: Sequence[Entry], memories: Sequence[Memory],
     return rows
 
 
+# ── measurement-window state ─────────────────────────────────────────────────
+#
+# Why this block exists: three separate sessions (2026-08-24, -26, -26) read the
+# `logged` column, saw near-zero, and concluded the boot payload was unused. That
+# column is structurally incapable of counting a working trigger — the trigger's
+# text arrives at boot and is never re-fetched; its PAYLOAD is what gets
+# config_get'd. PR #120 added `attr` to fix that, and the error was repeated
+# twice AFTER the fix, because the instruction to cut on `logged` lives in the
+# project instructions (in context, every session) while the correction lived in
+# a reference-only ops entry and the memory corpus (retrieved only if recalled).
+# So the correction is moved here, into the artifact that is read at the moment
+# the decision is made.
+
+WINDOW_START = "2026-08-24"  # date of the PR #120 fix; earlier fires are blind-instrument noise
+MIN_WINDOW_DAYS = 21         # judgment call, NOT a measured quantity
+STALE_FIRE_DAYS = 3          # no fire in this long => sessions aren't recording
+
+
+def window_state(rows: Sequence[LedgerRow], latest_fire: str | None,
+                 today: str | None = None) -> dict:
+    """Is the instrument in a state where a demotion list means anything?
+
+    Returns a dict with the verdict and the numbers behind it. ``USABLE`` is the
+    only verdict under which ``summarize`` will render candidates.
+    """
+    import datetime as _dt
+    start = os.environ.get("MUNINN_FIRE_WINDOW_START", WINDOW_START)
+    now = today or _dt.date.today().isoformat()
+
+    def _days(a: str, b: str) -> int:
+        try:
+            return (_dt.date.fromisoformat(b[:10]) - _dt.date.fromisoformat(a[:10])).days
+        except Exception:
+            return 0
+
+    elapsed = _days(start, now)
+    since_fire = _days(latest_fire, now) if latest_fire else None
+    attributed = sum(r.attributed_fires for r in rows)
+
+    if attributed == 0:
+        verdict, why = "NOT RECORDING", (
+            "zero attributed fires. Check MUNINN_INSTRUMENT_FIRES is set in "
+            "Turso.env BEFORE assuming the payload is unused")
+    elif since_fire is not None and since_fire > STALE_FIRE_DAYS:
+        verdict, why = "DELIVERY GAP", (
+            f"last fire was {since_fire}d ago; sessions have stopped recording. "
+            "A skipped window is indistinguishable from a zero window")
+    elif elapsed < MIN_WINDOW_DAYS:
+        verdict, why = "IMMATURE", (
+            f"{elapsed}d of {MIN_WINDOW_DAYS}d since the window restarted at "
+            f"{start}. Too short to conclude anything")
+    else:
+        verdict, why = "USABLE", f"{elapsed}d of recording, {attributed} attributed fires"
+    return {"verdict": verdict, "why": why, "window_start": start,
+            "days_elapsed": elapsed, "latest_fire": latest_fire,
+            "days_since_fire": since_fire, "attributed_total": attributed}
+
+
 def demotion_candidates(rows: Sequence[LedgerRow], *, min_chars: int = 400) -> list[LedgerRow]:
     """Trigger/ops rows that never fired (own OR dispatched) and are big enough to be
     worth reclaiming. Identity/catalog rows are excluded — they are not demoted
@@ -374,35 +433,55 @@ def demotion_candidates(rows: Sequence[LedgerRow], *, min_chars: int = 400) -> l
 # ── rendering ────────────────────────────────────────────────────────────────
 
 def render_table(rows: Sequence[LedgerRow]) -> str:
+    # `logged` is deliberately NOT rendered. It is structurally near-zero for
+    # every working trigger, and rendering it next to `attr` has produced three
+    # wrong "the payload is unused" conclusions. It remains in to_dict()/--json
+    # for anyone who wants it and knows why they want it.
     hdr = ("| rank | key | kind | chars | tokens | hits | months | recent | "
-           "logged | attr | dispatch | chars/hit | terms |")
-    sep = "|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|--:|---|"
+           "attr | dispatch | chars/hit | terms |")
+    sep = "|---|---|---|--:|--:|--:|--:|--:|--:|---|--:|---|"
     lines = [hdr, sep]
     for i, r in enumerate(rows, 1):
         cph = "∞(0 hits)" if r.hits == 0 else f"{r.chars_per_hit:g}"
         terms = "curated" if r.curated_terms else "auto"
         lines.append(
             f"| {i} | `{r.key}` | {r.kind} | {r.chars} | {r.tokens} | {r.hits} "
-            f"| {r.months} | {r.recent_hits} | {r.logged_fires} | "
+            f"| {r.months} | {r.recent_hits} | "
             f"{r.attributed_fires} | {', '.join(r.dispatch) or '—'} | {cph} | {terms} |"
         )
     return "\n".join(lines)
 
 
-def summarize(rows: Sequence[LedgerRow], corpus_months: int, corpus_size: int) -> str:
+def summarize(rows: Sequence[LedgerRow], corpus_months: int, corpus_size: int,
+              state: dict | None = None) -> str:
     total_chars = sum(r.chars for r in rows)
     total_tokens = sum(r.tokens for r in rows)
     never = [r for r in rows if r.hits == 0]
     demote = demotion_candidates(rows)
     ident = [r for r in rows if r.kind == "identity"]
+    state = state or window_state(rows, None)
+    usable = state["verdict"] == "USABLE"
+    if usable:
+        demote_line = (
+            f"- Demotion candidates (trigger/ops, 0 attributed fires, ≥400 chars): "
+            f"**{len(demote)}** — {', '.join('`'+r.key+'`' for r in demote) or 'none'}")
+    else:
+        demote_line = (
+            f"- Demotion candidates: **SUPPRESSED** — {state['why']}. "
+            f"Cutting the payload on this run is not supported by the data.")
     lines = [
+        f"> **INSTRUMENT STATE: {state['verdict']}** — {state['why']}.",
+        f"> Window restarted {state['window_start']} (PR #120 fix); "
+        f"{state['days_elapsed']}d elapsed; last recorded fire "
+        f"{state['latest_fire'] or 'never'}. "
+        f"**Cut on `attr`, never on `logged`.**",
+        "",
         f"- Boot-loaded entries: **{len(rows)}**",
         f"- Boot payload cost: **{total_chars:,} chars / ~{total_tokens:,} tokens**",
         f"- Corpus sampled: **{corpus_size:,} active memories across {corpus_months} months**",
         f"- Never referenced in corpus: **{len(never)}** entries "
         f"({sum(r.chars for r in never):,} chars)",
-        f"- Demotion candidates (trigger/ops, 0 attributed fires, ≥400 chars): "
-        f"**{len(demote)}** — {', '.join('`'+r.key+'`' for r in demote) or 'none'}",
+        demote_line,
         f"- Identity/always-on (not demotable): **{len(ident)}** "
         f"({sum(r.chars for r in ident):,} chars)",
     ]
@@ -452,6 +531,20 @@ def load_fire_counts(exec_fn: Callable | None = None) -> dict[str, int]:
     return {r["key"]: int(r["fire_count"]) for r in rows}
 
 
+def load_latest_fire(exec_fn: Callable | None = None) -> str | None:
+    """Most recent ``last_fired`` across ALL config keys.
+
+    Delivery check, not a usage measure: if this is stale, sessions have stopped
+    setting ``MUNINN_INSTRUMENT_FIRES`` and every count below is an undercount.
+    """
+    _exec = exec_fn or _live_exec()
+    cols = {c["name"] for c in _exec("PRAGMA table_info(config)")}
+    if "last_fired" not in cols:
+        return None
+    rows = _exec("SELECT MAX(last_fired) AS m FROM config WHERE last_fired IS NOT NULL")
+    return (rows[0].get("m") if rows else None) or None
+
+
 def load_memory_corpus(exec_fn: Callable | None = None) -> list[Memory]:
     """Active (non-deleted) memories projected to (month, content-terms)."""
     _exec = exec_fn or _live_exec()
@@ -488,8 +581,10 @@ def report(exec_fn: Callable | None = None, as_json: bool = False) -> str:
     rows = build_ledger(entries, memories,
                         fire_counts=load_fire_counts(exec_fn))
     corpus_months = len({m.month for m in memories if m.month})
+    state = window_state(rows, load_latest_fire(exec_fn))
     if as_json:
         return json.dumps({
+            "window_state": state,
             "summary": {
                 "entries": len(rows),
                 "total_chars": sum(r.chars for r in rows),
@@ -501,17 +596,17 @@ def report(exec_fn: Callable | None = None, as_json: bool = False) -> str:
         }, indent=2, default=str)
     return (
         "# Boot Payload Ledger — cost vs. fire rate\n\n"
-        + summarize(rows, corpus_months, len(memories))
+        + summarize(rows, corpus_months, len(memories), state)
         + "\n\n## Ranked table (worst cost/fire first)\n\n"
         + render_table(rows)
-        + "\n\n_Fire rate is a memory-corpus reference proxy (no config_get log "
-        "exists yet). `logged` counts config_get on the entry ITSELF; `attr` adds "
-        "the fires of the reference keys it dispatches to, which is the real "
-        "signal for a trigger — a working trigger is never config_get'd, its "
-        "payload is. Both are 0 until `MUNINN_INSTRUMENT_FIRES=1` has run for a "
-        "window. `terms=auto` rows use "
-        "key-derived match terms (lower precision) — add a curated entry to "
-        "`DOMAIN_TERMS` to tighten them._\n"
+        + "\n\n_`hits`/`months`/`recent` are the memory-corpus reference proxy: "
+        "did the entry's subject arise in logged work. `attr` is the exact count "
+        "— the entry's own config_get fires plus those of the reference keys it "
+        "dispatches to. A working trigger's own count is always 0, because its "
+        "text arrives at boot and only its PAYLOAD is fetched; that is why the "
+        "raw `logged` column is not shown here (it is in `--json`). "
+        "`terms=auto` rows use key-derived match terms (lower precision) — add a "
+        "curated entry to `DOMAIN_TERMS` to tighten them._\n"
     )
 
 

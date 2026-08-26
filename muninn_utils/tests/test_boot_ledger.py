@@ -273,3 +273,66 @@ def test_load_fire_counts_reads_every_key_not_just_boot_loaded():
                 {"key": "bike-coach-protocol", "fire_count": 4}]
     assert bl.load_fire_counts(fake_exec) == {
         "github-procedures": 7, "bike-coach-protocol": 4}
+
+
+# ── measurement-window state (PR: cut-on-attr guard) ─────────────────────────
+
+def _row(key, *, attributed=0, kind="ops", chars=500, hits=0):
+    from muninn_utils.boot_ledger import LedgerRow
+    return LedgerRow(key=key, category="ops", kind=kind, chars=chars,
+                     tokens=chars // 4, hits=hits, months=0, recent_hits=0,
+                     chars_per_hit=float(chars), logged_fires=0,
+                     attributed_fires=attributed, last_fired=None,
+                     dispatch=[], curated_terms=False)
+
+
+def test_window_state_not_recording_when_no_attributed_fires():
+    from muninn_utils.boot_ledger import window_state
+    s = window_state([_row("a"), _row("b")], None, today="2026-10-01")
+    assert s["verdict"] == "NOT RECORDING"
+    assert "MUNINN_INSTRUMENT_FIRES" in s["why"]
+
+
+def test_window_state_delivery_gap_when_fires_are_stale():
+    from muninn_utils.boot_ledger import window_state
+    s = window_state([_row("a", attributed=9)], "2026-09-01T00:00:00Z", today="2026-10-01")
+    assert s["verdict"] == "DELIVERY GAP"
+
+
+def test_window_state_immature_before_min_days():
+    from muninn_utils.boot_ledger import window_state
+    s = window_state([_row("a", attributed=9)], "2026-08-26T00:00:00Z", today="2026-08-27")
+    assert s["verdict"] == "IMMATURE"
+    assert "2026-08-24" in s["why"]
+
+
+def test_window_state_usable_after_a_full_window():
+    from muninn_utils.boot_ledger import window_state
+    s = window_state([_row("a", attributed=30)], "2026-09-20T00:00:00Z", today="2026-09-21")
+    assert s["verdict"] == "USABLE"
+
+
+def test_summarize_suppresses_demotion_list_unless_usable():
+    from muninn_utils.boot_ledger import summarize, window_state
+    rows = [_row("fat-unused-entry", chars=900)]
+    s = window_state(rows, None, today="2026-08-27")
+    out = summarize(rows, 8, 3000, s)
+    assert "SUPPRESSED" in out
+    assert "`fat-unused-entry`" not in out
+    assert "Cut on `attr`, never on `logged`" in out
+
+
+def test_summarize_renders_candidates_when_usable():
+    from muninn_utils.boot_ledger import summarize, window_state
+    rows = [_row("fat-unused-entry", chars=900), _row("used", attributed=30)]
+    s = window_state(rows, "2026-09-20T00:00:00Z", today="2026-09-21")
+    out = summarize(rows, 8, 3000, s)
+    assert "SUPPRESSED" not in out
+    assert "`fat-unused-entry`" in out
+
+
+def test_render_table_omits_the_logged_column():
+    from muninn_utils.boot_ledger import render_table
+    out = render_table([_row("a", attributed=3)])
+    assert "logged" not in out
+    assert "attr" in out
