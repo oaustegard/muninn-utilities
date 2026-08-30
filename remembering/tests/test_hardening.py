@@ -799,3 +799,35 @@ if __name__ == "__main__":
     print(f"Results: {passed} passed, {failed} failed out of {len(tests)}")
     if failed:
         sys.exit(1)
+
+
+# --- StrictDict: to_dict() no longer a validation escape hatch (2026-08-29) ---
+
+def test_to_dict_get_unknown_key_raises():
+    import pytest
+    from scripts.result import MemoryResult
+    d = MemoryResult({'id': 'x', 'summary': 's', 'type': 'world'}).to_dict()
+    with pytest.raises(KeyError):
+        d.get('bogus_field', '')
+    with pytest.raises(KeyError):
+        d['bogus_field']
+
+
+def test_to_dict_alias_resolves_with_warning():
+    import warnings
+    from scripts.result import MemoryResult
+    d = MemoryResult({'id': 'x', 'summary': 's', 'type': 'world'}).to_dict()
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        assert d.get('content') == 's'
+    assert any(issubclass(x.category, DeprecationWarning) for x in w)
+
+
+def test_to_dict_still_a_plain_dict():
+    import json
+    from scripts.result import MemoryResult
+    d = MemoryResult({'id': 'x', 'summary': 's', 'type': 'world'}).to_dict()
+    assert isinstance(d, dict)
+    assert json.loads(json.dumps(d))['summary'] == 's'
+    assert d.get('tags', []) == []          # valid, unset -> default
+    assert dict(**d)['id'] == 'x'
