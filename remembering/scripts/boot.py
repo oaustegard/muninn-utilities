@@ -652,6 +652,22 @@ def _persist_env_fallback() -> bool:
         return False  # Side-effect only; never break boot
 
 
+
+API_FOOTER = (
+    "\n# REMEMBERING API (read this even if you tailed the rest)\n"
+    "  recall(query, n=10)   -- it is n=, not limit=\n"
+    "  result fields: id, type, summary (NOT body/content), tags, refs, "
+    "priority, created_at, confidence\n"
+    "  r.summary / r['summary'] / r.to_dict().get('summary') validate; "
+    "unknown names raise, aliases warn\n"
+    "  full signatures: remembering/_MAP.md ; ops remembering-api"
+)
+# Emitted as the LAST lines of every boot mode. Three consecutive sessions
+# (f28b6478, 3704abbe, 2026-08-29 follow-up) truncated boot with `| tail`
+# and then wrote recall(...limit=) and r['body']; the ops entry stating both
+# facts sat mid-payload, unread. Put the contract where the tail lands.
+
+
 def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     """Boot sequence: load profile + ops from Turso.
 
@@ -911,6 +927,7 @@ def _boot_perch(profile_data: list, ops_data: list, *, task: str = None) -> str:
     except Exception:
         pass
 
+    output.append(API_FOOTER)
     return '\n'.join(output)
 
 
@@ -1346,6 +1363,7 @@ def _format_boot_output(profile_data: list, ops_by_topic: dict,
             short_id = r.get('id', '')[:8]
             output.append(f"  - {status_icon} [{r.get('status', '?')}] {r.get('text', '')}{recur} (id: {short_id})")
 
+    output.append(API_FOOTER)
     return '\n'.join(output)
 
 
