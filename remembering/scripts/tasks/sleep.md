@@ -17,6 +17,17 @@ If `policy['instructions']` is set, follow it. If `policy['preferences']` contai
 
 Sleep runs whenever dispatched — no cadence skip. The `policy['last_run']` is informational (lets you note "previous sleep flagged X; check if resolved").
 
+### Phase 0.5: Probes (self-run tests — never hand these to Oskar)
+
+`remembering/probes/*.py` are executable regression checks for behavioral fixes: each replicates a recorded failure condition against a fresh model or container and exits 0/1. Run every probe not run in the last 7 days (check `recall(tags=["probe"], n=20)` for the last `PROBE <name>` memory):
+
+```bash
+cd /home/claude/muninn-utilities/remembering
+for f in probes/*.py; do python3 -m probes.$(basename $f .py) --record || echo "PROBE FAIL: $f"; done
+```
+
+`--record` writes the result to memory. On FAIL: open an issue on `oaustegard/muninn-utilities` (`muninn_utils.github_rw`) titled `probe: <name> failing`, body = the JSON result, and tag the recorded memory `needs-fix`. Do not just log it — a failed probe nobody reads is the situation these exist to end (memories f28b6478, 3704abbe, 173b0e50: three sessions repeated one failure while the diagnosis sat in the store). Each probe is ~12 Sonnet calls; skip only if API_KEY is absent, and say so in the session summary.
+
 ### Phase 1: Pruning
 
 1. Search for memories tagged `pending-test` or with low confidence (<0.5). Review them and decide: keep, update, or delete.
