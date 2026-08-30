@@ -176,3 +176,39 @@ def test_pr_state_maps_merged(monkeypatch):
 def test_pr_state_open(monkeypatch):
     monkeypatch.setattr(gh, "_gh", _Recorder([("GET", "/pulls/9", {"merged": False, "state": "open"})]))
     assert gh.pr_state("o/r", 9) == "open"
+
+
+# --- commit_file refuses to recreate the deleted head of a merged PR (2026-08-29) ---
+
+def _missing_branch_routes(closed_prs):
+    return [
+        ("GET", "/git/ref/heads/br", _http_error(404)),                 # branch_exists -> False
+        ("GET", "/pulls?state=closed&head=o:br", closed_prs),
+        ("GET", "/git/ref/heads/main", {"object": {"sha": "basesha"}}),
+        ("POST", "/git/refs", {"ref": "created"}),
+        ("GET", "/contents/", _http_error(404)),
+        ("PUT", "/contents/", {"commit": {"sha": "c3"}}),
+    ]
+
+
+def test_commit_file_missing_branch_with_closed_pr_raises(monkeypatch):
+    rec = _Recorder(_missing_branch_routes([{"number": 124}]))
+    monkeypatch.setattr(gh, "_gh", rec)
+    with pytest.raises(gh.MergedBranchError, match="#124"):
+        gh.commit_file("o/r", "f.md", "x", branch="br", message="m")
+    assert rec.posts() == [] and rec.puts() == []      # nothing written
+
+
+def test_commit_file_missing_branch_no_prs_creates(monkeypatch):
+    rec = _Recorder(_missing_branch_routes([]))
+    monkeypatch.setattr(gh, "_gh", rec)
+    gh.commit_file("o/r", "f.md", "x", branch="br", message="m")
+    assert len(rec.posts()) == 1 and len(rec.puts()) == 1
+
+
+def test_commit_file_recreate_bypasses_check(monkeypatch):
+    rec = _Recorder(_missing_branch_routes([{"number": 124}]))
+    monkeypatch.setattr(gh, "_gh", rec)
+    gh.commit_file("o/r", "f.md", "x", branch="br", message="m", recreate=True)
+    assert len(rec.puts()) == 1
+    assert not any("/pulls?" in c[1] for c in rec.calls)  # check skipped

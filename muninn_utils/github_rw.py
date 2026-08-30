@@ -174,13 +174,40 @@ def create_branch(repo, branch, base="main"):
         raise last
 
 
-def commit_file(repo, path, content, *, branch, message, base="main"):
+class MergedBranchError(RuntimeError):
+    """``branch`` is the deleted head of an already-merged/closed PR.
+
+    Raised by ``commit_file`` instead of silently recreating the branch from
+    ``base`` — which is what happened on 2026-08-29: two follow-up commits went
+    to the recreated head of merged #124 with no error, and lived on a closed
+    PR until Oskar noticed. Pass ``recreate=True`` to override deliberately.
+    """
+
+
+def _closed_prs_for_head(repo, branch):
+    owner = repo.split("/")[0]
+    return _gh("GET", f"/repos/{repo}/pulls?state=closed&head={owner}:{branch}&per_page=5") or []
+
+
+def commit_file(repo, path, content, *, branch, message, base="main", recreate=False):
     """Create or update one text file on ``branch``.
 
     Creates ``branch`` from ``base`` if it doesn't exist, then writes ``content``
     (overwriting if the path already exists on the branch). Returns the
     contents-API response (commit + content metadata).
+
+    If ``branch`` does not exist but was the head of a merged or closed PR,
+    raises ``MergedBranchError`` rather than recreating it — the commit would
+    otherwise land on a dead PR and look successful. ``recreate=True`` bypasses.
     """
+    if not recreate and not branch_exists(repo, branch):
+        closed = _closed_prs_for_head(repo, branch)
+        if closed:
+            nums = ", ".join(f"#{p['number']}" for p in closed)
+            raise MergedBranchError(
+                f"branch '{branch}' is the deleted head of closed PR(s) {nums}; "
+                f"use a new branch name or pass recreate=True"
+            )
     create_branch(repo, branch, base)
     _, sha = get_file(repo, path, branch)
     payload = {
