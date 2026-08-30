@@ -242,17 +242,56 @@ class MemoryResult:
         return [(k, v) for k, v in self._data.items() if k in VALID_FIELDS]
 
     def to_dict(self) -> dict:
-        """Convert back to plain dictionary.
+        """Convert to a dict that still validates field names.
 
-        Use when you need raw dict access without validation,
-        or for serialization.
+        Returns a :class:`StrictDict`: a real ``dict`` (serializes, iterates,
+        ``**``-unpacks normally) whose ``[]`` and ``.get()`` raise ``KeyError``
+        for names that are not memory fields. This closes the escape hatch
+        where ``r.to_dict().get('body', '')`` silently returned the default —
+        the recurrence recorded in memories f28b6478 / 3704abbe: three
+        sessions in a row printed blanks on that exact call.
         """
-        return dict(self._data)
+        return StrictDict(self._data)
 
     # Support for common dict operations that code might use
     def copy(self) -> dict:
-        """Return a copy as a plain dict."""
-        return dict(self._data)
+        """Return a copy as a StrictDict (see to_dict)."""
+        return StrictDict(self._data)
+
+
+class StrictDict(dict):
+    """dict of memory fields that refuses unknown keys on read.
+
+    ``d['body']`` and ``d.get('body')`` raise ``KeyError`` with a
+    did-you-mean hint instead of returning ``None``/the default. Known
+    aliases (``content`` -> ``summary``) resolve with a DeprecationWarning,
+    matching MemoryResult. Present-but-unset valid fields still return the
+    default from ``.get()``.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def _resolve(key):
+        if key in COMMON_MISTAKES:
+            canonical = COMMON_MISTAKES[key]
+            warnings.warn(
+                f"'{key}' is a deprecated alias for '{canonical}'. "
+                "Update the access site.",
+                DeprecationWarning, stacklevel=3,
+            )
+            return canonical
+        if key not in VALID_FIELDS:
+            msg = f"Invalid field '{key}'."
+            msg += f"\n\nValid fields: {', '.join(sorted(VALID_FIELDS))}"
+            raise KeyError(msg)
+        return key
+
+    def __getitem__(self, key):
+        return dict.get(self, self._resolve(key))
+
+    def get(self, key, default=None):
+        return dict.get(self, self._resolve(key), default)
 
 
 class MemoryResultList(list):
