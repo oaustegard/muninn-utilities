@@ -6,62 +6,67 @@ pick, ask a cheap model to INVENT a plausible label for the item, then resolve t
 invention against the real vocabulary with an embedder. The model never sees the
 schema; the embedder does the constraining.
 
-Measured on two corpora, which disagree — read both tables before reaching for this.
-(`oaustegard/experiments/hypothetical-classification`, gemini-3.5-flash-lite.)
+Measured on two corpora (`oaustegard/experiments/hypothetical-classification`,
+gemini-3.5-flash-lite). Read the second table before reaching for this, and read the
+prompt note before writing your own prompt.
 
-WANDS query -> product_class. 860 labels, 468 queries, ONE gold label. Item and label
-are the same kind of string: a 2-4 word noun phrase.
+WANDS query -> product_class. 860 labels, 468 queries, ONE gold label.
 
     arm                                       acc@1  acc@3   input tok/query
-    lexical char-ngram: query   -> label      0.329  0.472        0
-    MiniLM:             query   -> label      0.417  0.564        0    <- no-LLM control
-    lexical char-ngram: hallucination         0.466  0.553      100
-    MiniLM:             hallucination         0.489  0.613      100    <- the pattern
-    MiniLM:  (query + hallucination)/2        0.500  0.639      100
-    MiniLM:  hallucination, BATCHED x40       0.496  0.641        6
+    char-ngram TF-IDF: query -> label         0.316  0.453        0
+    MiniLM:            query -> label         0.417  0.564        0    <- no-LLM control
+    MiniLM:  hallucination, novelty prompt    0.489  0.613      100
+    MiniLM:  hallucination, register prompt   0.564  0.690      100    <- the pattern
+    MiniLM:  hallucination, BATCHED x40         "      "          6
     structured output (ship all 860 labels)   0.701  0.744     5265
 
-Muninn memory -> tag. 1,273 labels, 250 memories, mean 4.8 gold tags. The item is a
-300-2000 char summary; the label is one hyphenated word.
+Muninn memory -> tag. 1,273 labels, 250 memories of 300-2000 chars, mean 4.8 gold tags.
 
     arm                                        @1     @3     @5
-    tfidf:  summary -> tag                   0.400  0.604  0.684   <- no-LLM control
-    tfidf:  5 invented tags -> tag           0.200  0.352  0.452   <- the pattern, HALVED
-    tfidf:  control UNION invented           0.496  0.696  0.764   <- both together
+    tfidf: summary -> tag                    0.400  0.604  0.684   <- no-LLM control
+    tfidf: 5 tags, novelty prompt            0.200  0.352  0.452
+    tfidf: 5 tags, register prompt           0.500  0.680  0.728
+    tfidf: control + register, interleaved   0.676  0.848  0.876   <- direct_union=True
 
-TWO RULES COME OUT OF THAT PAIR, and neither is in the original post:
+THE PROMPT IS THE LARGEST SINGLE VARIABLE, AND THE SOURCE POST GETS IT WRONG.
+Its prompt opens "create a novel, never-seen-before classification". That instruction is
+safe only with a model too weak to follow it. A Haiku 4.5 subagent obeyed it and scored
+0.100 acc@1 on WANDS against a 0.500 no-model control, writing `Hydraulic Styling Thrones`
+and `Weathered Branch-Frame Reflectors`; re-anchored on register it scored 0.525/0.750.
+Gemini flash-lite half-ignores the same instruction, so on WANDS it merely cost 7.5pp
+(0.489 vs 0.564) - but on the tag corpus, where the vocabulary is distinctive, it cost 30
+(0.200 vs 0.500) and turned a win into a loss against doing nothing. The pattern wants a
+novel INSTANCE in the vocabulary's register; "never-seen-before" asks for novel WORDING.
+`_PROMPT` below is register-anchored. If you replace it, keep that.
 
-1. THE PATTERN REPLACES DIRECT SNAPPING ONLY WHEN ITEM AND LABEL SHARE A REGISTER.
-   A WANDS query and a WANDS class are both short noun phrases, so inventing a class
-   is a translation and it wins. A memory summary and a tag are not, so inventing a
-   tag compresses 1,500 characters into one word and throws away what the direct snap
-   still has — it scores half the control. Asking for 5 tags instead of 1 does not
-   rescue it (0.200 vs 0.400 at k=1). On long items, pass `direct_union=True` and take
-   the union: the inventions are COMPLEMENTARY to the direct snap (0.496 vs 0.400),
-   just not a substitute for it.
+SHIPPING THE VOCABULARY IS STILL 14 POINTS BETTER WHEN YOU CAN AFFORD IT.
+Structured output over all 860 WANDS labels scores 0.701 against this pattern's 0.564, at
+5,265 input tokens per query against 6. The post does not report that arm. So:
 
-2. SHIPPING THE VOCABULARY IS 20 POINTS MORE ACCURATE WHEN YOU CAN AFFORD IT.
-   Structured output over all 860 WANDS labels scores 0.701 against this pattern's
-   0.500, at 5,265 input tokens per query against 6. The post reports the pattern
-   working and being cheaper; it does not report that arm. So:
+    Vocabulary fits in a prompt (a few thousand labels)  -> ship it, use structured
+    output, take the 0.701. This module is the wrong tool.
 
-       Vocabulary fits in a prompt (a few thousand labels)  -> ship it, use structured
-       output, take the 0.701. This module is the wrong tool.
+    Vocabulary is too big to ship, hits a provider enum cap, or per-call token cost
+    dominates at volume -> this module. Muninn's own case is tag assignment: 5,575
+    distinct tags is ~30k tokens on every single call.
 
-       Vocabulary is too big to ship, hits a provider enum cap, or per-call token cost
-       dominates at volume -> this module. Muninn's own case is tag assignment: 5,575
-       distinct tags is ~30k tokens on every single call.
+`direct_union=True` interleaves the direct snap of the item with the snap of the written
+label. It is worth +17.6pp on the tag corpus (0.676 vs 0.500) because the two rankings are
+complementary, and it is the right default for long documents. It is not a rescue for a
+bad prompt - fix the prompt first.
 
 Three defaults here are measured rather than chosen:
   - `batch=40` costs nothing. Batched 0.496/0.641 vs unbatched 0.489/0.613, at 1/17
     the input tokens and 1/9 the wall-clock. Never send one item per call.
   - `blend=True` averages the item's own embedding with the hallucination's, worth
-    +1.1pp on WANDS. Turn it off — and turn `direct_union` on — for long items.
-  - `backend="tfidf"` needs no model download and still lands 0.466 on WANDS, most of
-    the way to MiniLM's 0.489. On Muninn tags it BEATS MiniLM (0.400 vs 0.296),
-    because a memory summary usually contains its own tag words literally. Pass
-    `backend="minilm"` when sentence-transformers plus a 90 MB download are available
-    and the item shares no vocabulary with the labels.
+    +1.1pp on WANDS short items. For long documents use `direct_union=True` instead —
+    it interleaves two full rankings rather than averaging two vectors, and the averaging
+    drowns a one-word label in a 1,500-character summary.
+  - `backend="tfidf"` needs no model download and lands 0.528 on WANDS against MiniLM's
+    0.564. It BEATS MiniLM on the direct half of the tag corpus (0.400 vs 0.296), because
+    a memory summary usually contains its own tag words literally. Pass `backend="minilm"`
+    when sentence-transformers plus a 90 MB download are available and the items share no
+    wording with the labels.
 
     from muninn_utils.hypothetical_classifier import Vocabulary, classify
 
@@ -149,17 +154,20 @@ def _norm(a: np.ndarray) -> np.ndarray:
 
 # ── The hallucination half ────────────────────────────────────────────────────
 
-_PROMPT = """Your task is to invent a novel, never-seen-before {domain} classification that
-best fits each item below.
+_PROMPT = """You are writing entries for a {domain} vocabulary.
 
-Classifications might look like:
+For each item below, write the label that this vocabulary WOULD file that item under.
+Write it the way the vocabulary writes labels — match the examples' register, length and
+wording exactly.
+
+Do not worry about whether the label already exists. Write the obvious one. Do not invent
+novel or creative wording, do not use marketing adjectives, do not hedge, do not explain.
+
+Examples of the register:
 {examples}
 
-Invent freely. Do NOT try to recall a real classification, do not hedge, do not
-explain. A plausible invention is exactly what is wanted.
-
 Output one line per item, in the same order, formatted exactly as:
-<n>. <classification>
+<n>. <label>
 
 ITEMS:
 {numbered}"""
