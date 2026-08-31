@@ -23,10 +23,10 @@ WANDS query -> product_class. 860 labels, 468 queries, ONE gold label.
 Muninn memory -> tag. 1,273 labels, 250 memories of 300-2000 chars, mean 4.8 gold tags.
 
     arm                                        @1     @3     @5
-    tfidf: summary -> tag                    0.400  0.604  0.684   <- no-LLM control
-    tfidf: 5 tags, novelty prompt            0.200  0.352  0.452
-    tfidf: 5 tags, register prompt           0.500  0.680  0.728
-    tfidf: control + register, interleaved   0.676  0.848  0.876   <- direct_union=True
+    tfidf: summary -> tag                    0.416  0.628  0.712   <- no-LLM control
+    tfidf: 5 tags, novelty prompt            0.208  0.352  0.424
+    tfidf: 5 tags, register prompt           0.508  0.700  0.792
+    tfidf: control + register, interleaved   0.672  0.852  0.888   <- direct_union=True
 
 THE PROMPT IS THE LARGEST SINGLE VARIABLE, AND THE SOURCE POST GETS IT WRONG.
 Its prompt opens "create a novel, never-seen-before classification". That instruction is
@@ -35,7 +35,7 @@ safe only with a model too weak to follow it. A Haiku 4.5 subagent obeyed it and
 and `Weathered Branch-Frame Reflectors`; re-anchored on register it scored 0.525/0.750.
 Gemini flash-lite half-ignores the same instruction, so on WANDS it merely cost 7.5pp
 (0.489 vs 0.564) - but on the tag corpus, where the vocabulary is distinctive, it cost 30
-(0.200 vs 0.500) and turned a win into a loss against doing nothing. The pattern wants a
+(0.208 vs 0.508) and turned a win into a loss against doing nothing. The pattern wants a
 novel INSTANCE in the vocabulary's register; "never-seen-before" asks for novel WORDING.
 `_PROMPT` below is register-anchored. If you replace it, keep that.
 
@@ -51,7 +51,7 @@ Structured output over all 860 WANDS labels scores 0.701 against this pattern's 
     distinct tags is ~30k tokens on every single call.
 
 `direct_union=True` interleaves the direct snap of the item with the snap of the written
-label. It is worth +17.6pp on the tag corpus (0.676 vs 0.500) because the two rankings are
+label. It is worth +16.4pp on the tag corpus (0.672 vs 0.508) because the two rankings are
 complementary, and it is the right default for long documents. It is not a rescue for a
 bad prompt - fix the prompt first.
 
@@ -63,7 +63,8 @@ Three defaults here are measured rather than chosen:
     it interleaves two full rankings rather than averaging two vectors, and the averaging
     drowns a one-word label in a 1,500-character summary.
   - `backend="tfidf"` needs no model download and lands 0.528 on WANDS against MiniLM's
-    0.564. It BEATS MiniLM on the direct half of the tag corpus (0.400 vs 0.296), because
+    0.564. If you can ship an encoder, `thenlper/gte-small` scores 0.455 acc@1 snapping
+    the raw query against MiniLM-L6's 0.417, for 33 MB of int8 ONNX against 23 MB. It BEATS MiniLM on the direct half of the tag corpus (0.416 vs 0.356), because
     a memory summary usually contains its own tag words literally. Pass `backend="minilm"`
     when sentence-transformers plus a 90 MB download are available and the items share no
     wording with the labels.
