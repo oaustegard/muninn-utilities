@@ -23,6 +23,8 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   bsky_card.py            Bluesky card/post creation
   bsky_limit.py           300-grapheme cap check for bsky posts
   correction_gate.py      Held-in/held-out regression gate for boot-loaded self-corrections (#83)
+  hypothetical_classifier.py  Closed-vocabulary classification: cheap LLM invents a label,
+                            an embedder snaps it to the legal set (#hallucinate-and-snap)
   issue_close.py          GitHub issue close with memory
   memory_tfidf.py         TF-IDF over memory corpus
   news_watch.py           News monitoring utilities
