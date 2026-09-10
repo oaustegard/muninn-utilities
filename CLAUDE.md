@@ -33,6 +33,8 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   remind.py               Reminder/nag memory creation
   satisfaction_skew.py    Measure failure:success storage skew — correction vs satisfaction-analog ratio, trend, shapes (#85)
   task_policy.py          Task routing policy
+  verdict.py              Persist a challenge() verdict with the fingerprint that dates it —
+                            judge, profile, and a hash of the criterion prose (#verdict-lineage)
   verify_patch.py         Patch verification utilities
   zeitgeist_delta.py      Zeitgeist delta computation
   use_when.json           Routing hints for utility selection
