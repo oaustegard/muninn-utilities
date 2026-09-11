@@ -16,6 +16,12 @@
   },
   {
    "kind": "protocol",
+   "when": "Looking for prior art or an existing implementation that may live in ANOTHER repo — grep and tree-sitting only see one checkout, and there is no hub checkout on this surface",
+   "reach": "config_get('xr-bootstrap') — one bash call bootstraps and runs it, cold or warm; same -r rule",
+   "exists": "/mnt/project"
+  },
+  {
+   "kind": "protocol",
    "when": "About to write \"yesterday\", \"recently\", \"a few months ago\", or any duration word",
    "reach": "ground it first \u2014 cat /tmp/LOCAL_DATE, memory timestamps, git log; never narrative time"
   },

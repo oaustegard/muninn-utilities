@@ -188,6 +188,66 @@ class TestRenderTaskRouting(unittest.TestCase):
         self.assertIn("Good trigger.", out)
 
 
+class TestXrRoutedOnEverySurface(unittest.TestCase):
+    """`xr` must route on every surface Muninn boots on, not only CCotw.
+
+    Diagnosed 2026-09-11 (Oskar: "you have access to the xr search tool, right?
+    For some reason muninn on claude.ai does not"). The shipped map had one xr
+    row, gated on `/home/user/claude-workspace/scripts/xr.py` — a path that only
+    exists on CCotw. claude.ai could run xr the whole time via the xr-bootstrap
+    ops entry; boot simply never said so, so a session on 2026-09-10 re-derived
+    the bootstrap by hand instead. A row that renders on one surface and
+    silently vanishes on another looks identical to a tool that does not exist.
+
+    SURFACES is the enumeration: a new xr row must declare which surface its
+    probe belongs to, and each surface must end up with exactly one row.
+    """
+
+    # probe path -> the surface it identifies
+    SURFACES = {
+        "/home/user/claude-workspace/scripts/xr.py": "CCotw (hub checkout on disk)",
+        "/mnt/project": "claude.ai (project env mount, no checkout)",
+    }
+
+    def _shipped_xr_rows(self):
+        data = json.loads(capabilities._DEFAULT_MAP_PATH.read_text())
+        return [e for e in data["entries"]
+                if e.get("kind") == "protocol"
+                and "xr" in (e.get("reach", "") + e.get("when", ""))]
+
+    def test_every_xr_row_declares_a_known_surface(self):
+        rows = self._shipped_xr_rows()
+        self.assertTrue(rows, "the shipped map routes xr nowhere")
+        for row in rows:
+            probe = row.get("exists")
+            self.assertIn(
+                probe, self.SURFACES,
+                f"xr row probes {probe!r}, which names no surface in SURFACES — "
+                "add it there (with the surface it identifies) or reuse a probe",
+            )
+
+    def test_each_surface_renders_exactly_one_xr_row(self):
+        for probe, surface in self.SURFACES.items():
+            with TemporaryDirectory() as tmp:
+                # Only this surface's probe resolves; every other path is absent.
+                with patch.object(capabilities.os.path, "exists",
+                                  side_effect=lambda p, _w=probe: p == _w):
+                    out = capabilities.render_task_routing(skills_dir=tmp)
+            xr_lines = [ln for ln in out.splitlines() if "xr" in ln]
+            self.assertEqual(
+                len(xr_lines), 1,
+                f"{surface}: expected one xr row, got {xr_lines}",
+            )
+
+    def test_the_claude_ai_row_reaches_the_bootstrap_not_the_checkout_path(self):
+        rows = [r for r in self._shipped_xr_rows() if r.get("exists") == "/mnt/project"]
+        self.assertEqual(len(rows), 1)
+        reach = rows[0]["reach"]
+        self.assertIn("xr-bootstrap", reach)
+        self.assertNotIn("/home/user/claude-workspace", reach,
+                         "claude.ai has no hub checkout; that path is the bug")
+
+
 class TestLoadCapabilityMap(unittest.TestCase):
     def test_config_override_wins(self):
         override = json.dumps(_map([{"kind": "protocol", "when": "w", "reach": "r"}]))
