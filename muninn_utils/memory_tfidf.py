@@ -265,7 +265,14 @@ class MemoryIndex:
 
         candidates = []
         for i in scores.argsort()[::-1]:
-            if i == idx or scores[i] < min_sim:
+            # The source memory is always rank 0 at similarity 1.0. Skipping it
+            # has to be `continue`; the original `break` fired on the first
+            # iteration of every call, so this method returned [] unconditionally
+            # from the day it was written. `similar()` was unaffected, which is
+            # why nothing surfaced it. (Found 2026-09-12 while wiring serendipity.)
+            if i == idx:
+                continue
+            if scores[i] < min_sim:
                 break
             target_tags = _to_tag_set(self.meta[i].get("tags", []))
             if not source_tags or not target_tags:
