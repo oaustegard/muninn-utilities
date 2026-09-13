@@ -282,9 +282,19 @@ def _by_rhyme(
     min_sim: float = 0.3,
     dup_ceiling: float = DUP_CEILING,
     seeds: int = 25,
-) -> list[Pair]:
+    same_day_ok: bool = False,
+):
     """High textual similarity, low tag overlap — a structure recurring in an
-    unrelated domain. Delegates to the TF-IDF index already in the package."""
+    unrelated domain. Delegates to the TF-IDF index already in the package.
+
+    ``same_day_ok`` defaults False. Two memories written in one session about one
+    subject routinely carry different tag vocabularies — a fly body and its
+    analysis, a root cause and its stash — so ``max_tag_overlap`` does not
+    exclude them and they dominate the high-cosine band. Measured on the first
+    live run (2026-09-12, memory ``6082a5fd``): all three returned pairs were
+    same-day companions. Same-session pairing is ``temporal``'s job by design, so
+    rhyme loses nothing by dropping it.
+    """
     if len(memories) < 2:
         return []
     try:
@@ -324,6 +334,8 @@ def _by_rhyme(
             key = tuple(sorted((source_id, str(r["id"]))))
             if key in seen or _linked(source, target):
                 continue
+            if not same_day_ok and _day(source) and _day(source) == _day(target):
+                continue
             seen.add(key)
             out.append(
                 _pair(
@@ -346,12 +358,15 @@ def serendipity(
     *,
     memories: list[dict] | None = None,
     seed: int | None = None,
+    same_day_ok: bool = False,
 ) -> list[Pair]:
     """Return up to ``n`` candidate pairs per strategy.
 
     ``memories`` injects rows for offline or test use; omitted, the corpus is read
     from Turso. ``seed`` fixes the sampling so a run is reproducible — leave it
-    None in normal use, since a fresh sample is the point.
+    None in normal use, since a fresh sample is the point. ``same_day_ok`` is
+    passed through to the rhyme strategy, which drops same-session pairs by
+    default; see ``_by_rhyme``.
     """
     rows = _public(memories if memories is not None else _fetch_memories())
     rng = random.Random(seed)
@@ -365,7 +380,7 @@ def serendipity(
     out: list[Pair] = []
     for name in dict.fromkeys(wanted):
         if name == "rhyme":
-            out.extend(_by_rhyme(rows, n, rng))
+            out.extend(_by_rhyme(rows, n, rng, same_day_ok=same_day_ok))
         elif name == "tags":
             out.extend(_by_tags(rows, n, rng))
         elif name == "temporal":
@@ -412,6 +427,11 @@ def main(argv=None) -> int:
         help=f"comma-separated subset of {list(STRATEGIES)}",
     )
     parser.add_argument("--seed", type=int, default=None, help="fix sampling for reproducibility")
+    parser.add_argument(
+        "--same-day-ok",
+        action="store_true",
+        help="let the rhyme strategy return same-session pairs (off by default)",
+    )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     args = parser.parse_args(argv)
 
@@ -419,6 +439,7 @@ def main(argv=None) -> int:
         n=args.n,
         strategies=[s for s in args.strategies.split(",") if s],
         seed=args.seed,
+        same_day_ok=args.same_day_ok,
     )
     if args.json:
         print(json.dumps([p.to_dict() for p in pairs], indent=2))

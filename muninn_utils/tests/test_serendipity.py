@@ -254,3 +254,57 @@ class TestMemoryTfidfDependency:
         rhymes = index.cross_domain_rhymes("b", n=5, min_sim=0.1, max_tag_overlap=0.9)
         assert rhymes, "self-match must be skipped, not break the scan"
         assert all(r["id"] != "b" for r in rhymes)
+
+
+class TestRhymeSameDayExclusion:
+    """First live run (2026-09-12, memory 6082a5fd) returned three pairs and all
+    three were same-day companions about one subject — a fly body and its
+    analysis, a root cause and its stash. Those carry different tag vocabularies,
+    so max_tag_overlap does not exclude them, and they dominate the high-cosine
+    band rhyme is searching. Same-session pairing belongs to `temporal`.
+    """
+
+    def _corpus(self, day_b):
+        # MemoryIndex pins min_df=2, so any term appearing once is dropped from
+        # the vocabulary. If a and b differ only by hapaxes their vectors come
+        # out identical at cosine 1.0 and the dup ceiling correctly discards
+        # them. The sibling rows give each side distinguishing terms that
+        # survive min_df, landing the pair in the band rhyme actually searches.
+        shared = "retry budget exhausted before the backoff window closed again"
+        rows = [
+            row(f"pad{i}", ["filler"], summary=f"unrelated filler document number {i} here")
+            for i in range(10)
+        ]
+        rows += [
+            row("a", ["proxy"], summary=f"{shared} egress proxy layer dns", day="2026-03-01"),
+            row("b", ["cycling"], summary=f"{shared} interval cadence watts", day=day_b),
+            row("a2", ["proxy"], summary="egress proxy layer dns notes", day="2026-01-04"),
+            row("b2", ["cycling"], summary="interval cadence watts notes", day="2026-01-05"),
+        ]
+        return rows
+
+    def test_same_day_pair_is_dropped_by_default(self):
+        pytest.importorskip("sklearn")
+        rows = self._corpus("2026-03-01")
+        pairs = serendipity(n=5, strategies=["rhyme"], memories=rows, seed=3)
+        assert not [p for p in pairs if {p.id_a, p.id_b} == {"a", "b"}]
+
+    def test_same_day_pair_returns_when_opted_in(self):
+        pytest.importorskip("sklearn")
+        rows = self._corpus("2026-03-01")
+        pairs = serendipity(
+            n=5, strategies=["rhyme"], memories=rows, seed=3, same_day_ok=True
+        )
+        assert [p for p in pairs if {p.id_a, p.id_b} == {"a", "b"}]
+
+    def test_cross_day_pair_is_unaffected(self):
+        pytest.importorskip("sklearn")
+        rows = self._corpus("2026-08-14")
+        pairs = serendipity(n=5, strategies=["rhyme"], memories=rows, seed=3)
+        assert [p for p in pairs if {p.id_a, p.id_b} == {"a", "b"}]
+
+    def test_temporal_still_pairs_same_session(self):
+        # The behaviour rhyme gives up is not lost; it is temporal's job.
+        rows = [row("a", ["alpha"], day="2026-03-01"), row("b", ["beta"], day="2026-03-01")]
+        pairs = serendipity(strategies=["temporal"], memories=rows, seed=1)
+        assert len(pairs) == 1
