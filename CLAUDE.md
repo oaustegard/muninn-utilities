@@ -31,6 +31,8 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   perch_publish.py        Perch flight log publish
   perch_triage.py         Perch triage workflow
   remind.py               Reminder/nag memory creation
+  run_gate.py             Run tests/lint/build with output captured: one line per passing
+                            stage, full dump for a failing one (context backpressure)
   satisfaction_skew.py    Measure failure:success storage skew — correction vs satisfaction-analog ratio, trend, shapes (#85)
   task_policy.py          Task routing policy
   verdict.py              Persist a challenge() verdict with the fingerprint that dates it —
