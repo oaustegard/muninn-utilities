@@ -45,14 +45,31 @@ def test_passing_stage_reports_one_line(tmp_path):
     assert len(line) < 40
 
 
-def test_failing_stage_dumps_everything(tmp_path):
+def test_full_dumps_everything(tmp_path):
     body = "\n".join(f"line {i}" for i in range(300))
     runner = fake_runner({"pytest -q": (1, body)})
     stage = run_stage("unit", "pytest -q", log_dir=tmp_path, runner=runner)
-    out = format_stage(stage)
+    out = format_stage(stage, full=True)
     assert out.startswith(f"  {FAIL_MARK} unit (exit 1")
     assert "line 0" in out and "line 299" in out
     assert "$ pytest -q" in out
+
+
+def test_failure_extracts_the_error_region_by_default(tmp_path):
+    """The default keeps the anchored error, not a slice by position."""
+    body = "\n".join(
+        [f"[INFO] downloading dep-{i}" for i in range(200)]
+        + ["ERROR: undefined reference to `resolve_timeout`"]
+        + [f"[INFO] module-{i} SKIPPED" for i in range(200)]
+    )
+    runner = fake_runner({"make": (2, body)})
+    stage = run_stage("build", "make", log_dir=tmp_path, runner=runner)
+    out = format_stage(stage)
+    assert "undefined reference to `resolve_timeout`" in out
+    assert "dep-5" not in out
+    assert "module-150" not in out
+    assert stage.log_path in out
+    assert len(out.splitlines()) < 32  # 401 captured lines in
 
 
 def test_tail_truncates_and_keeps_the_log_path(tmp_path):
@@ -62,7 +79,7 @@ def test_tail_truncates_and_keeps_the_log_path(tmp_path):
     out = format_stage(stage, tail=10)
     assert "line 299" in out
     assert "line 0" not in out
-    assert "290 earlier lines" in out
+    assert "290 lines elided (lines 1-290)" in out
     assert stage.log_path in out
 
 

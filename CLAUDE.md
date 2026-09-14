@@ -26,6 +26,8 @@ muninn_utils/             Python package — materialized to ~/muninn_utils/ at 
   hypothetical_classifier.py  Closed-vocabulary classification: cheap LLM invents a label,
                             an embedder snaps it to the legal set (#hallucinate-and-snap)
   issue_close.py          GitHub issue close with memory
+  log_extract.py          Anchor-based extraction of the failure region from a long command
+                            log — verbatim keeps, counted elisions, no model
   memory_tfidf.py         TF-IDF over memory corpus
   news_watch.py           News monitoring utilities
   perch_publish.py        Perch flight log publish

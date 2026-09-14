@@ -45,6 +45,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from muninn_utils.log_extract import extract
+
 PASS_MARK = "\u2713"
 FAIL_MARK = "\u2717"
 
@@ -195,8 +197,13 @@ def _diagnose(stage: StageResult) -> str | None:
     return None
 
 
-def format_stage(stage: StageResult, *, tail: int = 0) -> str:
-    """One line for a pass, the full capture for a failure."""
+def format_stage(stage: StageResult, *, tail: int = 0, full: bool = False) -> str:
+    """One line for a pass, the failure region for a failure.
+
+    `full` dumps the whole capture. Otherwise log_extract keeps the anchored
+    error regions verbatim and replaces the rest with counted line ranges, so
+    the epilogue a build tool prints AFTER the error stops costing anything.
+    """
     if stage.skipped:
         return f"  - {stage.label} (skipped)"
     if stage.ok:
@@ -210,20 +217,30 @@ def format_stage(stage: StageResult, *, tail: int = 0) -> str:
         lines.append(f"    {note}")
 
     body = stage.output.rstrip("\n")
-    if body:
-        shown = body.splitlines()
-        if tail and len(shown) > tail:
-            dropped = len(shown) - tail
-            lines.append(f"    ... {dropped} earlier lines in {stage.log_path}")
-            shown = shown[-tail:]
+    if not body:
+        return "\n".join(lines)
+
+    if full:
         lines.append("")
-        lines.extend(shown)
+        lines.extend(body.splitlines())
         lines.append("")
+        return "\n".join(lines)
+
+    ex = extract(body, tail=tail or 6)
+    lines.append("")
+    lines.extend(ex.text.splitlines())
+    for note in ex.notes:
+        lines.append(f"    ({note})")
+    if ex.kept_lines < ex.total_lines:
+        lines.append(
+            f"    [{ex.kept_lines} of {ex.total_lines} lines shown \u2014 full log: {stage.log_path}]"
+        )
+    lines.append("")
     return "\n".join(lines)
 
 
-def format_gate(result: GateResult, *, tail: int = 0) -> str:
-    return "\n".join(format_stage(s, tail=tail) for s in result.stages)
+def format_gate(result: GateResult, *, tail: int = 0, full: bool = False) -> str:
+    return "\n".join(format_stage(s, tail=tail, full=full) for s in result.stages)
 
 
 def _as_json(result: GateResult) -> str:
@@ -286,7 +303,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--tail",
         type=int,
         default=0,
-        help="Show only the last N lines of a failure; 0 (default) shows all.",
+        help="Trailing lines always kept alongside the extracted regions (default 6).",
+    )
+    ap.add_argument(
+        "--full",
+        action="store_true",
+        help="Dump the entire capture on failure instead of extracting the error regions.",
     )
     ap.add_argument(
         "--bash",
@@ -315,7 +337,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         log_dir=args.log_dir,
         env=os.environ.copy(),
     )
-    print(_as_json(result) if args.json else format_gate(result, tail=args.tail))
+    print(
+        _as_json(result)
+        if args.json
+        else format_gate(result, tail=args.tail, full=args.full)
+    )
     return result.returncode
 
 

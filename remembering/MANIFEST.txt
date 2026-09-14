@@ -20,6 +20,7 @@ muninn_utils/gh_proxy.py
 muninn_utils/gh_status.py
 muninn_utils/github_rw.py
 muninn_utils/issue_close.py
+muninn_utils/log_extract.py
 muninn_utils/memory_tfidf.py
 muninn_utils/mini_muninn.py
 muninn_utils/news_watch.py
