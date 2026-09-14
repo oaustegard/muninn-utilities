@@ -3,9 +3,11 @@
 Source-of-truth for everything Muninn-flavored that runs in a session:
 
 - `remembering/` — Muninn's memory subsystem (Turso-backed, FTS5, decision traces, autonomous curation). Skill-shaped (`SKILL.md`, `scripts/`, `references/`, `tests/`) so it can still be mounted under `/mnt/skills/user/remembering/` for backward compatibility.
-- `muninn_utils/` — Python package of utilities that boot materializes into `~/muninn_utils/`. Migrated from Turso `utility-code` memories per memory `0d63ed4f`: `blog_publish`, `bsky_card`, `bsky_limit`, `issue_close`, `memory_tfidf`, `perch_publish`, `perch_triage`, `remind`, `verify_patch`, `zeitgeist_delta`. (`whtwnd` was also migrated here, then retired 2026-07-25 with the WhiteWind publishing target.)
+- `muninn_utils/` — Python package of utilities that boot materializes into `~/muninn_utils/`. Originally migrated from Turso `utility-code` memories per memory `0d63ed4f`, and grown well past that batch since.
+- `snapshot/` — builds a static, personal-scope-filtered snapshot of Muninn as a distributable claude-skill.
+- `okf/` — exports a slice of memory as an Open Knowledge Format bundle another agent can read with `cat`.
 
-Both used to live elsewhere — `remembering/` in
+The first two used to live elsewhere — `remembering/` in
 [`oaustegard/claude-skills`](https://github.com/oaustegard/claude-skills) as a
 generic skill, `muninn_utils/*` as Turso `utility-code` memories materialized
 at boot. Both became Muninn-specific in practice. This is their dedicated
@@ -15,37 +17,62 @@ home.
 
 ```
 muninn-utilities/
+├── CLAUDE.md               # Context roadmap — read first when working in here
 ├── remembering/            # Memory subsystem (skill-shaped)
 │   ├── SKILL.md
-│   ├── scripts/            # boot, memory, turso, hints, tasks, …
+│   ├── scripts/            # boot, memory, turso, config, capabilities, task, gen_manifest, …
+│   │   ├── defaults/       # Runtime JSON loaded by path, not imported
+│   │   └── tasks/          # Routine definitions (fly, sleep, zeitgeist, …)
 │   ├── references/
-│   └── tests/
+│   ├── tests/
+│   ├── MANIFEST.txt        # File list for the raw.githubusercontent transport
+│   └── CHANGELOG.md
 ├── muninn_utils/           # Importable Python package
-│   ├── __init__.py
-│   ├── blog_publish.py
-│   ├── bsky_card.py
-│   ├── bsky_limit.py
-│   ├── bsky_list.py
-│   ├── hypothetical_classifier.py
-│   ├── issue_close.py
-│   ├── memory_tfidf.py
-│   ├── perch_publish.py
-│   ├── perch_triage.py
-│   ├── remind.py
-│   ├── verify_patch.py
-│   ├── zeitgeist_delta.py
+│   ├── use_when.json       # Routing hint per module — the live catalog
 │   └── tests/
-└── README.md
+├── muninn-boot/            # The boot skill: SKILL.md + scripts/boot.sh
+├── manifests/              # One install manifest per utility (JSON + REVOKE.md)
+├── snapshot/               # Muninn-as-a-skill builder
+├── okf/                    # Open Knowledge Format export + lint
+├── docs/                   # getting-started, reference, overall-structure, mcp-migration
+├── scripts/build-tools-index.py
+└── .well-known/install-manifests.json
 ```
 
-## How it gets to a session
+The `muninn_utils` module list is deliberately not enumerated here. It changes
+most weeks, and a hand-maintained copy of it is what went stale in the previous
+version of this file. `muninn_utils/use_when.json` carries one routing line per
+module and is what boot renders; `CLAUDE.md` carries the same list with one-line
+descriptions.
 
-A Muninn session bootstraps in this order:
+## What boot.sh does, in order
 
-1. **Container layer** restored (system packages, Python deps)
-2. **muninn-utilities** tarball fetched first — `remembering/` and `muninn_utils/` both land on disk
-3. **Boot** runs from `remembering` here (loads identity, profile, ops, recent memories from Turso; materializes any non-migrated `utility-code` memories as `~/muninn_utils/` fallback)
-4. **claude-skills** tarball fetched for general skills (`flowing`, `browsing-bluesky`, `closing-issues`, etc.)
+`muninn-boot/scripts/boot.sh` runs as the first action of every Muninn
+conversation, in this order:
+
+1. **Source env** from `$MUNINN_PROJECT_DIR` (default `/mnt/project`) with
+   `set -a`, so values overwrite rather than merge. First, because the tarball
+   transport needs `GH_TOKEN`.
+2. **Sideload muninn-utilities** → `/home/claude/muninn-utilities`.
+3. **Sideload claude-skills** → `/mnt/skills/user` (general skills: `flowing`,
+   `browsing-bluesky`, `declauding`, …).
+4. **Write the `.pth`** at a site-packages directory resolved at runtime —
+   `python3.12/dist-packages` on Claude.ai, `python3.11/site-packages` in
+   Cowork.
+5. **Run `boot()`** from `remembering/scripts/boot.py`: identity, profile, ops,
+   recent memories, task routing, capability catalog.
+6. **Touch the sentinel** last, only on success. A warm container fast-exits in
+   ~0s, so re-running boot is cheap and idempotent.
+
+Each sideload has three transports, tried in order: the codeload tarball (one
+request, where codeload is not intercepted), `gh-api-proxy`'s `/tarball` (one
+request, follows the 302 server-side so the session never touches a blocked
+host), and `raw.githubusercontent.com` plus `MANIFEST.txt` (one request per
+file, needs no credentials at all).
+
+`raw` is CDN-cached on branch refs for minutes and the cache is not
+client-bustable, so a tier-3 boot shortly after a push silently loads pre-push
+code. Pin `MUNINN_UTILS_REF=<sha>` when iterating.
 
 Both [`oaustegard/claude-workspace`](https://github.com/oaustegard/claude-workspace)
 (Claude Code on the Web) and the Claude.ai project instructions point here.
@@ -93,38 +120,69 @@ list by walking `from .x import` statements misses every runtime **data** file
 (`scripts/defaults/*.json`, `scripts/tasks/*.md`). Symptom: boot succeeds but the
 Task Routing block silently renders empty.
 
-`MANIFEST.txt` is that list. Regenerate after adding or removing a runtime file:
+`MANIFEST.txt` is that list, and it covers `muninn_utils/` as well as
+`remembering/`. A runtime file missing from it is invisible to a tier-3 boot:
+present on Claude.ai, absent in Cowork, with no error in either place. Regenerate
+after adding or removing one:
 
 ```bash
 python3 remembering/scripts/gen_manifest.py           # from a checkout
-python3 remembering/scripts/gen_manifest.py --check   # CI: fail if stale
+python3 remembering/scripts/gen_manifest.py --check   # exit 1 if stale
 ```
 
-## claude-skills mirror
+No workflow in this repo runs `--check`. It is a pre-push step, and the only
+actor that runs it is whoever added the file.
 
-`remembering/` is auto-mirrored to
-[`oaustegard/claude-skills/remembering/`](https://github.com/oaustegard/claude-skills/tree/main/remembering)
-via a scheduled workflow that lives in `claude-skills` itself
-(`.github/workflows/sync-remembering-from-muninn-utilities.yml`). It pulls
-the latest `remembering/` from this public repo and opens a PR in
-claude-skills if anything changed.
+## Install manifests (`manifests/`)
 
-The workflow is a same-repo write so it needs no extra secrets — the
-default `GITHUB_TOKEN` is sufficient.
+One directory per utility, holding a versioned JSON manifest (scopes, actions,
+smoke test, kill switch) and a `REVOKE.md`. `boot()` audits them and warns on
+stderr about a manifest with no module, a module with neither manifest nor
+`use_when` entry, and required env that is unconfigured.
 
-The mirror is **deprecated** — kept fresh for marketplace continuity, not
-for new development. To change `remembering`, edit the files here.
+`.github/workflows/notify-tools-index.yml` fires a `repository_dispatch` at
+`muninn.austegard.com` when `manifests/` changes, so the site rebuilds
+`.well-known/tools.json` promptly rather than waiting for its daily schedule.
+
+## Relationship to claude-skills
+
+There is no longer a mirror. `remembering/` was vendored into
+`oaustegard/claude-skills` behind a scheduled sync workflow; the workflow was
+removed on 2026-05-10 (claude-skills#639) and the leftover stub directory on
+2026-07-07. This repo is the only home, so edit `remembering/` here.
+
+What remains is the reverse direction: boot sideloads claude-skills into
+`/mnt/skills/user` for the general, non-Muninn-specific skills.
 
 ## Tests
 
 ```
 python3 -m pytest muninn_utils/tests/
-python3 remembering/tests/test_hardening.py
+python3 -m pytest remembering/tests/
 ```
 
 `muninn_utils` tests resolve `flowing` from `/mnt/skills/user/flowing` (or a
 sibling claude-skills clone). `remembering` tests use mocks for Turso and
 GitHub I/O — no live credentials required.
+
+Lint what a branch added rather than the whole tree, which carries a large
+pre-existing baseline:
+
+```
+python3 -m muninn_utils.ruff_gate --base main
+```
+
+## Docs
+
+- [`docs/getting-started.md`](docs/getting-started.md) — build the minimal
+  `remember` → `recall` → `supersede` loop over Turso. Start here.
+- [`docs/reference.md`](docs/reference.md) — API surface of the memory layer and
+  the snapshot builder.
+- [`docs/overall-structure.md`](docs/overall-structure.md) — who the docs are
+  for and how they are organized.
+- [`docs/mcp-migration.md`](docs/mcp-migration.md) — moving the backend to a
+  deployed Worker ([`oaustegard/muninn-mcp`](https://github.com/oaustegard/muninn-mcp)).
+- [`CLAUDE.md`](CLAUDE.md) — context roadmap for an agent working in this repo.
 
 ## Background
 
@@ -133,3 +191,4 @@ GitHub I/O — no live credentials required.
 - [`oaustegard/muninn.austegard.com#125`](https://github.com/oaustegard/muninn.austegard.com/pull/125) — removed `muninn_utils/` from mac
 - [`oaustegard/claude-workspace#55`](https://github.com/oaustegard/claude-workspace/pull/55) — CCotw boot fetcher
 - [`oaustegard/claude-skills#625`](https://github.com/oaustegard/claude-skills/pull/625) — Claude.ai boot fetcher (in `remembering`)
+- [`oaustegard/claude-skills#639`](https://github.com/oaustegard/claude-skills/pull/639) — stopped vendoring `remembering` into claude-skills
