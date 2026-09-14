@@ -1,15 +1,16 @@
-# Excludes tests/.
-# Regenerate: python3 remembering/scripts/gen_manifest.py
 # Runtime file manifest for a raw.githubusercontent sideload.
 # codeload/api.github.com are intercepted by Anthropic's session egress
-# files (defaults/*.json, tasks/*.md), so this list is the manifest.
 # proxy in some session types (Cowork, scheduled runners); raw is not.
 # raw has no directory listing, and an import-graph walk misses data
+# files (defaults/*.json, tasks/*.md), so this list is the manifest.
+# Regenerate: python3 remembering/scripts/gen_manifest.py
+# Excludes tests/.
 muninn_utils/__init__.py
 muninn_utils/blog_publish.py
 muninn_utils/boot_ledger.py
 muninn_utils/bsky_card.py
 muninn_utils/bsky_limit.py
+muninn_utils/bsky_list.py
 muninn_utils/bsky_moderation.py
 muninn_utils/capability_model.py
 muninn_utils/correction_gate.py
@@ -19,6 +20,7 @@ muninn_utils/gemini_mini_muninn.py
 muninn_utils/gh_proxy.py
 muninn_utils/gh_status.py
 muninn_utils/github_rw.py
+muninn_utils/hypothetical_classifier.py
 muninn_utils/issue_close.py
 muninn_utils/log_extract.py
 muninn_utils/memory_tfidf.py
@@ -32,12 +34,14 @@ muninn_utils/ruff_gate.py
 muninn_utils/run_gate.py
 muninn_utils/satisfaction_skew.py
 muninn_utils/search_reindex.py
+muninn_utils/serendipity.py
 muninn_utils/skill_lint.py
 muninn_utils/strava.py
 muninn_utils/survey.py
 muninn_utils/task_policy.py
 muninn_utils/use_when.json
 muninn_utils/validate_fields.py
+muninn_utils/verdict.py
 muninn_utils/verify_patch.py
 muninn_utils/zeitgeist_delta.py
 remembering/SKILL.md
