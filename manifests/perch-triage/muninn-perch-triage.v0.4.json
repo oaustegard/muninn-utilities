@@ -2,10 +2,10 @@
   "manifest_version": "0.4",
   "tool": {
     "id": "muninn-perch-triage",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "name": "Muninn perch_triage",
-    "summary": "Triage open Perch flight-log discussions by reaction signal. Groups them into action buckets (auto-close, discuss, file-issue, hold, correct, nag). Optional auto-close path executes the THUMBS_UP/LAUGH bucket.",
-    "description": "Two operating modes. **Recommendation-only** (auto_close=false): reads open Flight Log discussions on oaustegard/claude-skills, classifies each by primary reaction (priority order: ROCKET > HEART > CONFUSED > EYES > HOORAY > THUMBS_DOWN > THUMBS_UP > LAUGH), groups them into action buckets, and returns the report. Pure read; no GitHub writes, no memory writes. **Auto-close** (auto_close=true, default): for THUMBS_UP / LAUGH reactions only, additionally writes a `world`-typed memory summarising the log, then closes the GH discussion with a comment referencing the memory id. Issue #5 calls this out as the test for a tool that produces a recommendation rather than a change \u2014 the recommendation-only mode is read-only with no writes; the auto-close mode is write-and-destructive on a narrow reaction set.",
+    "summary": "Triage open Perch flight-log discussions by Oskar's comments and reaction signals. Unanswered comments outrank reactions and block auto-close; the rest group into action buckets (auto-close, discuss, file-issue, hold, correct, nag). Optional auto-close path executes the THUMBS_UP/LAUGH bucket.",
+    "description": "Two operating modes. **Recommendation-only** (auto_close=false): reads open Flight Log discussions on oaustegard/muninn.austegard.com, routes any log with an Oskar comment newer than Muninn's last marked reply to a `respond` bucket, classifies the rest by primary reaction (priority order: ROCKET > HEART > CONFUSED > EYES > HOORAY > THUMBS_DOWN > THUMBS_UP > LAUGH), groups them into action buckets, and returns the report. Pure read; no GitHub writes, no memory writes. **Auto-close** (auto_close=true, default): for THUMBS_UP / LAUGH reactions only, additionally writes a `world`-typed memory summarising the log, then closes the GH discussion with a comment referencing the memory id. Issue #5 calls this out as the test for a tool that produces a recommendation rather than a change \u2014 the recommendation-only mode is read-only with no writes; the auto-close mode is write-and-destructive on a narrow reaction set.",
     "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/perch_triage.py",
     "author": {
       "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
@@ -101,7 +101,7 @@
     {
       "name": "triage",
       "summary": "Read open Flight Log discussions and group them by reaction-driven action. Optionally auto-close the THUMBS_UP / LAUGH bucket.",
-      "description": "Synchronously: fetches open discussions in the Flight Logs category, classifies each by primary reaction, and returns the result grouped into action buckets (auto_closed, discuss_priority, file_issues, hold, correction, close_not_useful, close_celebrate, nag, unreacted_recent). When auto_close=true, the auto_closed bucket is realised \u2014 each log gets a memory write and a GH close-with-comment; the others are recommendations the caller must execute manually. The unreacted_recent / nag split surfaces logs older than nag_days that have not been reacted to yet.",
+      "description": "Synchronously: fetches open discussions in the Flight Logs category, routes logs with unanswered Oskar comments to respond, classifies the rest by primary reaction, and returns the result grouped into action buckets (respond, auto_closed, discuss_priority, file_issues, hold, correction, close_not_useful, close_celebrate, nag, unreacted_recent). When auto_close=true, the auto_closed bucket is realised \u2014 each log gets a memory write and a GH close-with-comment; the others are recommendations the caller must execute manually. The unreacted_recent / nag split surfaces logs older than nag_days that have not been reacted to yet.",
       "docs": {
         "goal": "Triage Perch flight logs by reaction; optionally auto-close the obvious-good bucket.",
         "inputs_brief": "auto_close (bool, default true), nag_days (int, default 3), limit (int, default 25)",

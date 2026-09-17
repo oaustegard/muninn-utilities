@@ -9,6 +9,16 @@ Reaction → action mapping:
   CONFUSED           → Flag for correction
   HOORAY             → Close with satisfaction-analog
 
+Comments outrank reactions. A comment from Oskar posted after Muninn's last
+reply lands in the `respond` bucket regardless of any reaction, and a log in
+that bucket is never auto-closed. A 👍 plus "you should explore this" must not
+close the log and drop the request (discussion #331 sat unanswered for a week
+because triage routed on reactions alone and read no comment text).
+
+Muninn and Oskar post through the same PAT, so both show up as `oaustegard`.
+Muninn's comments carry MUNINN_MARKER (an invisible HTML comment) to tell them
+apart. Post through `reply()` so the marker is always there.
+
 Unreacted logs older than NAG_DAYS → nag Oskar to triage.
 """
 from datetime import datetime, timezone, timedelta
@@ -17,6 +27,7 @@ CATEGORY_ID = "DIC_kwDORr5Vj84C5A3Z"  # Flight Log (oaustegard/muninn.austegard.
 OWNER = "oaustegard"
 REPO = "muninn.austegard.com"
 NAG_DAYS = 3
+MUNINN_MARKER = "<!-- muninn -->"
 
 # Reaction → action type
 ACTION_MAP = {
@@ -53,17 +64,46 @@ def _gh_graphql(query, variables=None):
     return gh_proxy.graphql(query, variables)
 
 
+def _is_muninn(body):
+    return MUNINN_MARKER in (body or "")
+
+
+def reply(node_id, body):
+    """Comment on a flight log as Muninn. Returns the comment URL.
+
+    Appends MUNINN_MARKER so later triage runs count this as Muninn's answer
+    and stop surfacing the Oskar comments that precede it.
+    """
+    if not _is_muninn(body):
+        body = f"{body.rstrip()}\n\n{MUNINN_MARKER}"
+    data = _gh_graphql(
+        """mutation($id: ID!, $body: String!) {
+            addDiscussionComment(input: {discussionId: $id, body: $body}) {
+                comment { id url }
+            }
+        }""",
+        {"id": node_id, "body": body},
+    )
+    return data["addDiscussionComment"]["comment"]["url"]
+
+
+def unanswered_comments(comments):
+    """Oskar's comments newer than Muninn's latest marked reply, oldest first."""
+    last_reply = max(
+        (c["createdAt"] for c in comments if _is_muninn(c["body"])), default=""
+    )
+    return [
+        c for c in comments
+        if c["author"] and c["author"]["login"] == OWNER
+        and not _is_muninn(c["body"])
+        and c["createdAt"] > last_reply
+    ]
+
+
 def _close_discussion(node_id, comment=None):
     """Close a discussion, optionally adding a comment first."""
     if comment:
-        _gh_graphql(
-            """mutation($id: ID!, $body: String!) {
-                addDiscussionComment(input: {discussionId: $id, body: $body}) {
-                    comment { id }
-                }
-            }""",
-            {"id": node_id, "body": comment},
-        )
+        reply(node_id, comment)
     _gh_graphql(
         """mutation($id: ID!) {
             closeDiscussion(input: {discussionId: $id, reason: RESOLVED}) {
@@ -75,7 +115,10 @@ def _close_discussion(node_id, comment=None):
 
 
 def fetch_open_logs(limit=25):
-    """Fetch open flight logs with reactions and comments."""
+    """Fetch open flight logs with reactions and comments.
+
+    Each log carries `unanswered`: Oskar comments Muninn has not replied to.
+    """
     data = _gh_graphql(
         """query($owner: String!, $repo: String!, $categoryId: ID!, $limit: Int!) {
             repository(owner: $owner, name: $repo) {
@@ -88,7 +131,7 @@ def fetch_open_logs(limit=25):
                             content
                             reactors(first: 1) { totalCount }
                         }
-                        comments(first: 5) {
+                        comments(last: 30) {
                             nodes { author { login } body createdAt }
                         }
                     }
@@ -106,9 +149,11 @@ def fetch_open_logs(limit=25):
             for r in d["reactionGroups"]
             if r["reactors"]["totalCount"] > 0
         }
+        comments = sorted(d["comments"]["nodes"], key=lambda c: c["createdAt"])
         odin_comments = [
-            c for c in d["comments"]["nodes"]
-            if c["author"] and c["author"]["login"] == "oaustegard"
+            c for c in comments
+            if c["author"] and c["author"]["login"] == OWNER
+            and not _is_muninn(c["body"])
         ]
         logs.append({
             "node_id": d["id"],
@@ -119,14 +164,25 @@ def fetch_open_logs(limit=25):
             "body": d["body"],
             "reactions": reactions,
             "odin_comments": odin_comments,
+            "unanswered": unanswered_comments(comments),
         })
     return logs
+
+
+def pending_comments(limit=25):
+    """Open flight logs with Oskar comments awaiting a Muninn reply.
+
+    The inbox-review routine calls this; dream review gets the same logs via
+    triage()'s `respond` bucket.
+    """
+    return [log for log in fetch_open_logs(limit) if log["unanswered"]]
 
 
 def triage(logs=None, auto_close=True, nag_days=NAG_DAYS):
     """Triage open flight logs by reaction signals.
     
     Returns dict with action groups:
+      respond: Oskar commented after Muninn's last reply; outranks reactions
       auto_closed: list of logs that were auto-closed (if auto_close=True)
       discuss_priority: HEART-reacted, prioritize in review
       file_issues: ROCKET-reacted, need GH issues created
@@ -142,6 +198,7 @@ def triage(logs=None, auto_close=True, nag_days=NAG_DAYS):
     
     now = datetime.now(timezone.utc)
     result = {
+        "respond": [],
         "auto_closed": [],
         "discuss_priority": [],
         "file_issues": [],
@@ -154,6 +211,9 @@ def triage(logs=None, auto_close=True, nag_days=NAG_DAYS):
     }
     
     for log in logs:
+        if log.get("unanswered"):
+            result["respond"].append(log)
+            continue
         reactions = log["reactions"]
         if not reactions:
             # Unreacted — check age
@@ -201,7 +261,15 @@ def triage_report(result=None):
         result = triage()
     
     lines = []
-    
+
+    if result.get("respond"):
+        lines.append(f"**Comments awaiting a reply** 💬 ({len(result['respond'])}):")
+        for l in result["respond"]:
+            lines.append(f"  - #{l['number']}: {l['title']}")
+            for c in l["unanswered"]:
+                first = next((x for x in c["body"].splitlines() if x.strip()), "")
+                lines.append(f"    > {c['createdAt'][:10]}: {first[:160]}")
+
     if result["auto_closed"]:
         lines.append(f"**Auto-closed** ({len(result['auto_closed'])}):")
         for l in result["auto_closed"]:
