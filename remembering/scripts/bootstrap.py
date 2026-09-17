@@ -40,7 +40,8 @@ def create_tables():
             valid_from TEXT,
             access_count INTEGER DEFAULT 0,
             last_accessed TEXT,
-            is_superseded INTEGER NOT NULL DEFAULT 0
+            is_superseded INTEGER NOT NULL DEFAULT 0,
+            superseded_by TEXT
         )
     """)
 
@@ -201,18 +202,16 @@ def migrate_schema():
         _exec("CREATE INDEX IF NOT EXISTS idx_memories_active ON memories(is_superseded, deleted_at)")
     except:
         pass  # Index already exists
+    from scripts.integrity import ensure_superseded_by_column, repair
+    if ensure_superseded_by_column(_exec):
+        print("Added superseded_by column to memories table")
+        _is_superseded_added = True
     if _is_superseded_added:
         try:
-            _exec("""
-                UPDATE memories SET is_superseded = 1
-                WHERE id IN (
-                    SELECT DISTINCT value FROM memories, json_each(refs)
-                    WHERE deleted_at IS NULL AND value IS NOT NULL
-                )
-            """)
-            print("Backfilled is_superseded flag from existing refs")
+            plan = repair(write=True)
+            print(f"Backfilled lineage: {plan['counts']}")
         except Exception as e:
-            print(f"WARNING: is_superseded backfill failed: {e}")
+            print(f"WARNING: lineage backfill failed: {e}")
 
     print("Schema migration complete")
 

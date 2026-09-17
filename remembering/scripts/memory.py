@@ -101,6 +101,57 @@ def _resolve_memory_id(memory_id: str) -> str:
     return matches[0]['id']
 
 
+def _expand_ref_id(ref_id: str) -> str:
+    """Full id for a unique prefix, else the input unchanged.
+
+    Matches retired rows too: a citation of a superseded memory is still a
+    citation of that memory. 181 live refs were stored as 8-character prefixes
+    before this existed, and exact-match readers saw each as a dead pointer.
+    """
+    from .integrity import is_full_id, MIN_PREFIX
+    if not isinstance(ref_id, str) or is_full_id(ref_id) or len(ref_id) < MIN_PREFIX:
+        return ref_id
+    try:
+        rows = _exec("SELECT id FROM memories WHERE id LIKE ? LIMIT 2", [f"{ref_id}%"])
+    except Exception:  # noqa: BLE001 - never fail a write over a lookup
+        return ref_id
+    return rows[0]["id"] if len(rows) == 1 else ref_id
+
+
+def _expand_refs(refs) -> list:
+    """Drop None entries and expand id prefixes, leaving other shapes alone."""
+    from .integrity import ref_id
+    out = []
+    for item in refs or []:
+        if item is None:
+            continue
+        rid = ref_id(item)
+        if rid is not None:
+            full = _expand_ref_id(rid)
+            if full != rid:
+                item = full if isinstance(item, str) else {**item, "id": full}
+        out.append(item)
+    return out
+
+
+_SUPERSEDED_BY_READY = False
+
+
+def _ensure_superseded_by_ready() -> None:
+    """Add the superseded_by column once per process before supersede() uses it.
+
+    boot() does this too, but supersede() must not depend on boot having run:
+    the pipeline below is not a transaction, and a failed UPDATE there still
+    lets the INSERT land, leaving the original live beside its replacement.
+    """
+    global _SUPERSEDED_BY_READY
+    if _SUPERSEDED_BY_READY:
+        return
+    from .integrity import ensure_superseded_by_column
+    ensure_superseded_by_column(_exec)
+    _SUPERSEDED_BY_READY = True
+
+
 def _write_memory(mem_id: str, summary: str, type: str, now: str, conf: float,
                   tags: list, refs: list, priority: int, valid_from: str, session_id: str) -> None:
     """Internal helper: write memory to Turso (blocking).
@@ -115,7 +166,7 @@ def _write_memory(mem_id: str, summary: str, type: str, now: str, conf: float,
         flag now lives only on the explicit supersede() path; remember(refs=...) is
         side-effect-free with respect to the referenced rows.
     """
-    clean_refs = [r for r in (refs or []) if r is not None]
+    clean_refs = _expand_refs(refs)
     _exec(
         """INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
            session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
@@ -855,7 +906,7 @@ def _query(search: str = None, tags: list = None, type: str = None,
     # Build parameterized WHERE clause
     conditions = [
         "deleted_at IS NULL",
-        # Exclude memories that are superseded (appear in any other memory's refs field)
+        # Exclude memories a supersede() replaced
         "is_superseded = 0"
     ]
     params = []
@@ -1132,12 +1183,10 @@ def forget(memory_id: str) -> bool:
     resolved_id = _resolve_memory_id(memory_id)
 
     # v5.4.0: Fetch tags before deletion for co-occurrence update (#383)
-    # v5.x.0: Also fetch refs so we can recompute is_superseded on targets after delete.
     forgotten_tags = None
-    forgotten_refs = []
     try:
         rows = _exec(
-            "SELECT tags, refs FROM memories WHERE id = ? AND deleted_at IS NULL",
+            "SELECT tags FROM memories WHERE id = ? AND deleted_at IS NULL",
             [resolved_id],
         )
         if rows:
@@ -1146,40 +1195,17 @@ def forget(memory_id: str) -> bool:
                 forgotten_tags = json.loads(raw_tags)
             elif isinstance(raw_tags, list):
                 forgotten_tags = raw_tags
-            raw_refs = rows[0].get('refs', [])
-            if isinstance(raw_refs, str):
-                try:
-                    forgotten_refs = [r for r in json.loads(raw_refs) if r]
-                except json.JSONDecodeError:
-                    forgotten_refs = []
-            elif isinstance(raw_refs, list):
-                forgotten_refs = [r for r in raw_refs if r]
     except Exception:
         pass  # Best-effort
 
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     _exec("UPDATE memories SET deleted_at = ? WHERE id = ?", [now, resolved_id])
 
-    # v5.x.0 (#issue-superseded-col): For each memory this one referenced,
-    # re-check whether any OTHER non-deleted memory still references it.
-    # If not, clear its is_superseded flag so it can resurface in recall.
-    # This path is cold (forget is rare); using a small-scope json_each lookup
-    # is acceptable and keeps the hot recall path subquery-free.
-    if forgotten_refs:
-        for ref_id in forgotten_refs:
-            try:
-                still_superseded = _exec(
-                    """SELECT 1 FROM memories, json_each(refs)
-                       WHERE deleted_at IS NULL AND value = ? LIMIT 1""",
-                    [ref_id],
-                )
-                if not still_superseded:
-                    _exec(
-                        "UPDATE memories SET is_superseded = 0 WHERE id = ?",
-                        [ref_id],
-                    )
-            except Exception:
-                pass  # Best-effort; flag staleness is self-healing on next touch
+    # Forgetting a memory does not change whether the memories it cited were
+    # superseded. An earlier version cleared is_superseded on any ref target no
+    # longer cited by a live row, which read citations as supersessions (the
+    # conflation integrity.py documents). is_superseded is set by supersede()
+    # and cleared only by integrity.repair().
 
     # v5.4.0: Decrement co-occurrence counts (#383)
     if forgotten_tags and len(forgotten_tags) >= 2:
@@ -1286,12 +1312,18 @@ def supersede(original_id: str, summary: str, type: str, *,
     # Clamp to valid range, matching remember().
     priority = max(-1, min(2, priority))
 
+    _ensure_superseded_by_ready()
+
     # Batch both operations in single HTTP request (v3.3.0)
     # v5.x.0 (#issue-superseded-col): Also flag original as superseded so the
     # recall hot path can prune via index instead of a json_each subquery.
     _exec_batch([
-        # Soft-delete original AND flag it superseded
-        ("UPDATE memories SET deleted_at = ?, is_superseded = 1 WHERE id = ?", [now, original_id]),
+        # Soft-delete original, flag it superseded, and name its replacement.
+        # superseded_by is the stored edge; the refs=[original_id] written below
+        # stays as the backward pointer, and integrity.py recovers superseded_by
+        # from that signature for rows written before the column existed.
+        ("UPDATE memories SET deleted_at = ?, is_superseded = 1, superseded_by = ? WHERE id = ?",
+         [now, new_id, original_id]),
         # Insert new memory
         ("""INSERT INTO memories (id, type, t, summary, confidence, tags, refs, priority,
                session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
@@ -1838,7 +1870,7 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
                session_id, created_at, updated_at, valid_from, access_count, last_accessed, source)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)""",
             [mem_id, mem_type, now, summary, conf,
-             json.dumps(item_tags or []), json.dumps([r for r in (refs or []) if r is not None]),
+             json.dumps(item_tags or []), json.dumps(_expand_refs(refs)),
              priority, session_id, now, now, valid_from, write_source()]
         ))
         # Issue #15: wrap in MemoryWriteId for consistency with remember()/supersede().
@@ -1980,13 +2012,13 @@ def get_chain(memory_id: str, depth: int = 3) -> list:
 
         for ref in refs:
             if isinstance(ref, str):
-                # Direct memory ID reference
-                _traverse(ref, current_depth + 1)
+                # Direct memory ID reference (older rows may hold a prefix)
+                _traverse(_expand_ref_id(ref), current_depth + 1)
             elif isinstance(ref, dict) and ref.get('_type') != 'alternatives':
                 # Skip alternatives objects, follow other dict refs if they have an id
                 ref_id = ref.get('id')
                 if ref_id:
-                    _traverse(ref_id, current_depth + 1)
+                    _traverse(_expand_ref_id(ref_id), current_depth + 1)
 
     _traverse(memory_id, 0)
     return result

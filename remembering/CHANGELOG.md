@@ -2,6 +2,41 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.18.0] - 2026-09-17
+
+### Added
+
+- `superseded_by` column on `memories`: a retired row names the memory that
+  replaced it. `supersede()` writes it in the statement that retires the
+  original, and adds the column first if a session reaches it before boot.
+- `scripts/integrity.py`: recovers `superseded_by` for older rows from the exact
+  signature `supersede()` leaves (sole bare ref to the original, `created_at`
+  equal to its `deleted_at`); `successor(id)` follows the chain; `repair()`
+  links supersessions and clears the flag on live rows nothing replaced;
+  `boot_signal()` adds a boot line while any live row is hidden that way.
+  Exported as `successor` and `repair_lineage`.
+- `migrations/add_superseded_by_column.py` (`--status`, `--dry-run`). Applied
+  2026-09-17: 707 supersessions linked, 57 live memories unhidden.
+
+### Fixed
+
+- Three paths read "cited by a live memory" as "superseded": the backfill in
+  `boot.py`, `bootstrap.py` and `add_is_superseded_column.py`, and the
+  flag-clearing block in `forget()`. The backfill left 57 live memories flagged
+  and invisible to recall. All three now go through `integrity.repair()` or are
+  gone.
+- `remember()` / `remember_batch()` expand id prefixes in `refs` to full ids,
+  and `get_chain()` resolves stored prefixes. 181 live refs were 8-character
+  prefixes that exact-match readers treated as dangling.
+- `test_remember_batch_validation` forgets the memory it writes; the suite runs
+  against the live store and left one row per run.
+
+### Known
+
+- `_exec_batch` is a pipeline, not a transaction: a failed statement does not
+  stop the ones after it. A failed retiring UPDATE in `supersede()` still lands
+  the INSERT, leaving original and replacement both live.
+
 ## [5.17.0] - 2026-07-25
 
 ### Changed

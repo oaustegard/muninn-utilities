@@ -50,6 +50,9 @@ VALID_FIELDS: Set[str] = {
     'has_full',
     'deleted_at',
 
+    # Lineage: the memory that replaced this one (integrity.py)
+    'superseded_by',
+
     # Computed temporal context (issue #19)
     'relative_age',
 }

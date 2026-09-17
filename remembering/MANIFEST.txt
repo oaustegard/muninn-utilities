@@ -57,6 +57,7 @@ remembering/scripts/defaults/ops.json
 remembering/scripts/defaults/profile.json
 remembering/scripts/gen_manifest.py
 remembering/scripts/hints.py
+remembering/scripts/integrity.py
 remembering/scripts/memory.py
 remembering/scripts/provenance.py
 remembering/scripts/result.py

@@ -705,7 +705,7 @@ def test_remember_batch():
 
 def test_remember_batch_validation():
     """Test 25: Batch remember validates inputs"""
-    from scripts import remember_batch
+    from scripts import remember_batch, forget
 
     ids = remember_batch([
         {"summary": "Valid", "type": "world"},
@@ -716,6 +716,7 @@ def test_remember_batch_validation():
     assert isinstance(ids[0], str)  # First should succeed
     assert isinstance(ids[1], dict) and "error" in ids[1]  # Missing fields
     assert isinstance(ids[2], dict) and "error" in ids[2]  # Invalid type
+    forget(ids[0])  # this suite runs against the live store; leave nothing behind
     print("PASS: Batch validation works")
 
 

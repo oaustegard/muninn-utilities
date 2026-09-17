@@ -2,8 +2,8 @@
 
 Replaces the `id NOT IN (SELECT value FROM memories, json_each(refs) ...)`
 subquery in recall — the top Turso row-read offender on the 7-day dashboard
-(~60% of total reads). The new column is flag-maintained on insert/supersede
-and recomputed on forget(); recall queries prune via a compact index.
+(~60% of total reads). The flag is set by supersede() only; recall queries prune via a
+compact index. See add_superseded_by_column.py for the lineage pointer.
 
 Usage:
     python add_is_superseded_column.py              # Apply migration
@@ -42,13 +42,14 @@ def index_exists() -> bool:
 
 
 def backfill_needed_count() -> int:
-    """Count memories that would be flagged by a fresh backfill."""
-    rows = _exec("""
-        SELECT COUNT(DISTINCT value) AS n
-        FROM memories, json_each(refs)
-        WHERE deleted_at IS NULL AND value IS NOT NULL
-    """)
-    return int(rows[0].get("n", 0)) if rows else 0
+    """Count supersessions a fresh backfill would link (scripts.integrity).
+
+    This used to count every memory any live row cites, and the backfill
+    flagged all of them, hiding ordinary citations from recall. The count and
+    the backfill now share integrity.py's supersede() signature.
+    """
+    from scripts.integrity import repair
+    return repair(write=False)["counts"]["link"]
 
 
 def currently_flagged_count() -> int:
@@ -65,7 +66,7 @@ def status():
     _init()
     print(f"is_superseded column exists:  {column_exists()}")
     print(f"idx_memories_active exists:   {index_exists()}")
-    print(f"Memories that SHOULD be flagged (from refs): {backfill_needed_count()}")
+    print(f"Supersessions a backfill would link: {backfill_needed_count()}")
     if column_exists():
         print(f"Memories currently flagged:   {currently_flagged_count()}")
 
@@ -99,13 +100,9 @@ def apply(dry_run: bool = False):
         if dry_run:
             print(f"[dry-run] would backfill is_superseded=1 on {expected} memories")
         else:
-            _exec("""
-                UPDATE memories SET is_superseded = 1
-                WHERE id IN (
-                    SELECT DISTINCT value FROM memories, json_each(refs)
-                    WHERE deleted_at IS NULL AND value IS NOT NULL
-                )
-            """)
+            from scripts.integrity import ensure_superseded_by_column, repair
+            ensure_superseded_by_column(_exec)
+            repair(write=True)
             flagged = currently_flagged_count()
             print(f"Backfill complete: {flagged} memories flagged (expected {expected})")
     else:

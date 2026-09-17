@@ -44,6 +44,9 @@ from .memory import (
     curate, decision_trace  # v5.1.0: autonomous curation (#295) and decision traces (#297)
 )
 
+# Supersession lineage and flag repair (integrity.py)
+from .integrity import successor, repair as repair_lineage
+
 # Import result types (v3.4.0: type-safe memory results, v3.7.0: normalization)
 from .result import (
     MemoryResult, MemoryResultList,
@@ -118,6 +121,7 @@ __all__ = [
     "install_utilities", "UTIL_DIR",  # utilities
     "get_alternatives", "consolidate",  # v4.2.0: decision alternatives (#254) and consolidation (#253)
     "get_chain",  # v4.3.0: reference chain traversal (#283)
+    "successor", "repair_lineage",  # supersession lineage (integrity.py)
     "recall_batch", "remember_batch",  # v4.5.0: batch APIs (#299)
     "curate", "decision_trace",  # v5.1.0: autonomous curation (#295) and decision traces (#297)
     "_resolve_memory_id",  # v5.1.0: partial ID resolution (#244)

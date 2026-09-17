@@ -43,7 +43,7 @@ _VENDORED_VALID_FIELDS: set[str] = {
     "access_count", "last_accessed",
     "bm25_score", "composite_rank", "composite_score",
     "alternatives",
-    "has_full", "deleted_at",
+    "has_full", "deleted_at", "superseded_by",
     "relative_age",
 }
 

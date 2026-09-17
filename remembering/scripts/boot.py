@@ -519,18 +519,23 @@ def _ensure_write_provenance_schema():
                 pass
 
 def _ensure_is_superseded_schema():
-    """Idempotently ensure the is_superseded column, its index, and initial
-    backfill exist on the memories table.
+    """Idempotently ensure the is_superseded and superseded_by columns, the
+    active-row index, and the lineage backfill.
 
     Called from boot() so fresh databases and skill upgrades both work without
-    requiring Oskar to manually re-run bootstrap.py. All operations are safe to
-    repeat: ALTER fails silently when the column exists (caught), CREATE INDEX
-    is natively idempotent, and the backfill only runs when the ALTER just
-    succeeded (tracked via the try/except split).
+    requiring Oskar to manually re-run bootstrap.py. ALTERs fail silently when
+    the column exists, CREATE INDEX is natively idempotent, and the backfill
+    runs only when a column was just added.
+
+    The backfill is integrity.repair(), which links a retired row to its
+    replacement only on the exact signature supersede() leaves. The version
+    before it flagged every memory any live row cited, which hid ordinary
+    citations from recall (57 live rows, measured 2026-09-17).
 
     Added in v5.x.0 (#issue-superseded-col). The column replaces a per-recall
     json_each(refs) subquery that accounted for ~60% of Turso row-reads.
     """
+    from .integrity import ensure_superseded_by_column, repair
     added = False
     try:
         _exec("ALTER TABLE memories ADD COLUMN is_superseded INTEGER NOT NULL DEFAULT 0")
@@ -541,17 +546,12 @@ def _ensure_is_superseded_schema():
         _exec("CREATE INDEX IF NOT EXISTS idx_memories_active ON memories(is_superseded, deleted_at)")
     except Exception:
         pass  # Index creation is best-effort
-    if added:
+    added_pointer = ensure_superseded_by_column(_exec)
+    if added or added_pointer:
         try:
-            _exec("""
-                UPDATE memories SET is_superseded = 1
-                WHERE id IN (
-                    SELECT DISTINCT value FROM memories, json_each(refs)
-                    WHERE deleted_at IS NULL AND value IS NOT NULL
-                )
-            """)
+            repair(write=True)
         except Exception:
-            pass  # Backfill best-effort; flag is self-healing on next supersede
+            pass  # Best-effort; integrity.repair() can be run by hand
 
 
 def _ensure_muninn_utils_pth() -> bool:
@@ -805,6 +805,15 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
         pass
     _mark("manifest_audit")
 
+    # Live rows hidden by a stale superseded flag (integrity.py). Index-served.
+    lineage_signal = ""
+    try:
+        from .integrity import boot_signal
+        lineage_signal = boot_signal(_exec)
+    except Exception:
+        lineage_signal = "lineage check failed: import"
+    _mark("lineage")
+
     # Surface incomplete cross-session tasks (#332)
     pending_tasks = _load_incomplete_tasks()
     _mark("tasks")
@@ -841,6 +850,8 @@ def boot(mode: str = None, task: str = None, telemetry: bool = False) -> str:
     # Append the one-line manifest-audit summary if available.
     if audit_summary:
         result += f"\n{audit_summary}\n"
+    if lineage_signal:
+        result += f"\n{lineage_signal}\n"
 
     # Append telemetry footer if requested
     if telemetry and len(_telemetry_marks) >= 2:
