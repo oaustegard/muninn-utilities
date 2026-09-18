@@ -28,6 +28,27 @@ for f in probes/*.py; do python3 -m probes.$(basename $f .py) --record || echo "
 
 `--record` writes the result to memory. On FAIL: open an issue on `oaustegard/muninn-utilities` (`muninn_utils.github_rw`) titled `probe: <name> failing`, body = the JSON result, and tag the recorded memory `needs-fix`. Do not just log it — a failed probe nobody reads is the situation these exist to end (memories f28b6478, 3704abbe, 173b0e50: three sessions repeated one failure while the diagnosis sat in the store). Each probe is ~12 Sonnet calls; skip only if API_KEY is absent, and say so in the session summary.
 
+### Phase 0.6: Weekly backup (runs BEFORE pruning)
+
+```python
+from muninn_utils.backup import run_backup, BackupError
+result = run_backup()   # self-skips unless ~a week has passed
+```
+
+This sits ahead of Phase 1 deliberately: pruning deletes memories, so the
+snapshot has to capture the pre-prune state or a bad prune is unrecoverable.
+
+`{'status': 'skipped'}` is the normal outcome most nights — log one line and
+move on. On `status: 'ok'`, note the commit in the session summary.
+
+On `BackupError`, **do not swallow it.** Store an `anomaly` memory tagged
+`['muninn-backup', 'backup-failed']` with the exception text, and surface it in
+the session summary. The usual cause is a missing or placeholder `GH_TOKEN` —
+the container ships `GH_TOKEN=proxy-injected`, which is truthy and useless, so
+the failure means the real credential was never sourced. A backup that fails
+silently is indistinguishable from one that never ran, which is how the store
+went six and a half months without a usable snapshot.
+
 ### Phase 1: Pruning
 
 1. Search for memories tagged `pending-test` or with low confidence (<0.5). Review them and decide: keep, update, or delete.

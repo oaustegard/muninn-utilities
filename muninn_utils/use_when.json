@@ -1,4 +1,5 @@
 {
+  "backup": "Backing up the memory store, or asked when it was last backed up. run_backup() dumps Turso -> gzip -> commits to the private oaustegard/muninn-backup repo, self-skipping unless ~a week has passed. Wired into the sleep task ahead of pruning.",
   "blog_publish": "Publishing blog posts to austegard.com or muninn.austegard.com, linking Bluesky engagement widgets to posts, updating Atom feeds.",
   "boot_ledger": "Auditing or pruning the boot payload: which boot-loaded triggers/ops/voice-signature entries cost the most tokens per unit of actual use, what to demote to reference-only, whether a collapse dropped boot cost. Ranks every boot_load=1 config entry by exact token cost vs a memory-corpus fire-rate proxy; ships an opt-in config_get fire counter (MUNINN_INSTRUMENT_FIRES) for exact go-forward data. Companion to correction_gate (one guards a write, this measures the whole payload).",
   "bsky_card": "Posting any link to Bluesky via API with a proper card preview (blog posts, tools, apps, dashboards, etc.)",
