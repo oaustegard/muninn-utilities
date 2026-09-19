@@ -19,6 +19,12 @@ CODE_END = "<" + "<" + "<END>" + ">" + ">"
 # (migration decision) and `9a61ecc8` (archive action record).
 MUNINN_UTILS_REPO = os.environ.get("MUNINN_UTILS_REPO", "oaustegard/muninn-utilities")
 MUNINN_UTILS_BRANCH = os.environ.get("MUNINN_UTILS_BRANCH", "main")
+# Where boot.sh has already sideloaded the whole repo, through whichever of its
+# three transports worked. fetch_muninn_utils() reads that tree in preference to
+# the network: its own fetch goes straight to codeload with no auth, which the
+# egress proxy intercepts in Cowork and scheduled-runner sessions, and it then
+# returned an empty materialization with nothing in `failed` (2026-09-19).
+MUNINN_UTILS_SRC = os.environ.get("MUNINN_UTILS_SRC", "/home/claude/muninn-utilities")
 MUNINN_UTILS_SUBDIR = "muninn_utils"
 USE_WHEN_FILE = "use_when.json"
 
@@ -121,6 +127,74 @@ def install_utilities() -> dict:
     return installed
 
 
+def _materialize_from_local(result: dict) -> bool:
+    """Copy muninn_utils/*.py + manifests/ from MUNINN_UTILS_SRC into UTIL_DIR.
+
+    Returns True when at least one module was written, so the caller can fall
+    through to the network fetch when the sideloaded tree is absent or partial.
+    Applies the same name and containment checks as the tarball path — the
+    source is a local clone, but the destination guarantees are the same.
+    """
+    src_utils = os.path.join(MUNINN_UTILS_SRC, MUNINN_UTILS_SUBDIR)
+    if not os.path.isdir(src_utils):
+        return False
+
+    util_realpath = os.path.realpath(UTIL_DIR) + os.sep
+    wrote = 0
+    for name in sorted(os.listdir(src_utils)):
+        src = os.path.join(src_utils, name)
+        if not os.path.isfile(src):
+            continue
+
+        if name == USE_WHEN_FILE:
+            try:
+                with open(src, "r") as f:
+                    result["use_when"] = json.load(f)
+            except Exception:
+                pass  # malformed use_when is non-fatal, same as the tar path
+            continue
+
+        if not name.endswith(".py"):
+            continue
+        if not _VALID_NAME_RE.match(name[:-3]):
+            continue
+
+        target = os.path.join(UTIL_DIR, name)
+        if not os.path.realpath(target).startswith(util_realpath):
+            continue
+        try:
+            with open(src, "rb") as rf, open(target, "wb") as wf:
+                wf.write(rf.read())
+            result["fetched"].append(name)
+            wrote += 1
+        except Exception:
+            result["failed"].append(name)
+
+    src_manifests = os.path.join(MUNINN_UTILS_SRC, "manifests")
+    if os.path.isdir(src_manifests):
+        manifest_realpath = os.path.realpath(MANIFEST_DIR) + os.sep
+        for subdir in sorted(os.listdir(src_manifests)):
+            sub = os.path.join(src_manifests, subdir)
+            if not os.path.isdir(sub) or not _VALID_MANIFEST_DIR_RE.match(subdir):
+                continue
+            for fname in sorted(os.listdir(sub)):
+                if not _VALID_MANIFEST_FILE_RE.match(fname):
+                    continue
+                target_dir = os.path.join(MANIFEST_DIR, subdir)
+                os.makedirs(target_dir, exist_ok=True)
+                target_path = os.path.join(target_dir, fname)
+                if not os.path.realpath(target_path).startswith(manifest_realpath):
+                    continue
+                try:
+                    with open(os.path.join(sub, fname), "rb") as rf, \
+                            open(target_path, "wb") as wf:
+                        wf.write(rf.read())
+                except Exception:
+                    pass  # best-effort, same as _extract_manifest_member
+
+    return wrote > 0
+
+
 # @lat: [[infrastructure#Utility Materialization]]
 def fetch_muninn_utils() -> dict:
     """
@@ -128,9 +202,11 @@ def fetch_muninn_utils() -> dict:
     oaustegard/muninn-utilities. This is the sole source of truth for utility
     code and discoverability metadata at boot.
 
-    Single tarball fetch from codeload.github.com — no auth required since
-    the repo is public. Skips tests/ subdir; only top-level *.py land in
-    UTIL_DIR. use_when.json is parsed in-memory (not written to disk).
+    Reads MUNINN_UTILS_SRC first — the tree boot.sh already sideloaded through a
+    transport that works here — and only falls back to a codeload tarball, which
+    needs no auth but is intercepted in some session types. Skips tests/ subdir;
+    only top-level *.py land in UTIL_DIR. use_when.json is parsed in-memory (not
+    written to disk).
 
     Returns:
         Dict with keys:
@@ -138,6 +214,9 @@ def fetch_muninn_utils() -> dict:
         - failed:   list[str] — names that errored during write
         - use_when: dict[str, str] — utility name → trigger description (parsed
                     from use_when.json in the repo; empty if absent or invalid)
+        - source:   "local" | "codeload" | "none" — where the code came from.
+                    "none" means nothing was materialized, which the manifest
+                    audit reports as NOT AUDITED rather than as a passing zero.
     """
     result = {"fetched": [], "failed": [], "use_when": {}}
 
@@ -150,12 +229,18 @@ def fetch_muninn_utils() -> dict:
     if parent not in sys.path:
         sys.path.insert(0, parent)
 
+    if _materialize_from_local(result):
+        result["source"] = "local"
+        return result
+
     url = f"https://codeload.github.com/{MUNINN_UTILS_REPO}/tar.gz/{MUNINN_UTILS_BRANCH}"
     try:
         with urllib.request.urlopen(url, timeout=30) as resp:
             raw = resp.read()
     except Exception:
+        result["source"] = "none"
         return result
+    result["source"] = "codeload"
 
     util_realpath = os.path.realpath(UTIL_DIR) + os.sep
 
@@ -217,6 +302,12 @@ def fetch_muninn_utils() -> dict:
                 except Exception:
                     result["failed"].append(name)
     except Exception:
+        # An unreadable archive materialized nothing, so `source` must not keep
+        # claiming codeload — the whole point of the field is that a caller can
+        # tell an empty materialization from a populated one.
+        result["source"] = "none"
         return result
 
+    if not result["fetched"]:
+        result["source"] = "none"
     return result

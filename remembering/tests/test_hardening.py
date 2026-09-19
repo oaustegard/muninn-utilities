@@ -144,6 +144,17 @@ class _FakeUrlopen:
         return self._data
 
 
+def _no_local_src():
+    """Force fetch_muninn_utils() down the tarball path.
+
+    It now reads MUNINN_UTILS_SRC — the tree boot.sh sideloaded — before going to
+    the network, so the tests below, which mock urlopen, never reached the code
+    they assert on. That also made them environment-dependent: green in CI where
+    no sideloaded tree exists, red in any booted container where it does.
+    """
+    return patch("scripts.utilities.MUNINN_UTILS_SRC", "/nonexistent/muninn-utilities")
+
+
 def test_fetch_muninn_utils_writes_files():
     """Tarball with .py files at the muninn_utils/ root extracts to UTIL_DIR."""
     import io as _io
@@ -157,7 +168,7 @@ def test_fetch_muninn_utils_writes_files():
         "README.md": b"# repo readme - should NOT land",
     })
 
-    with patch("scripts.utilities.urllib.request.urlopen",
+    with _no_local_src(), patch("scripts.utilities.urllib.request.urlopen",
                return_value=_FakeUrlopen(tarball)):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = utilities.UTIL_DIR
@@ -190,7 +201,7 @@ def test_fetch_muninn_utils_rejects_malicious_names():
         "muninn_utils/good_one.py": b"# good\n",
     })
 
-    with patch("scripts.utilities.urllib.request.urlopen",
+    with _no_local_src(), patch("scripts.utilities.urllib.request.urlopen",
                return_value=_FakeUrlopen(tarball)):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = utilities.UTIL_DIR
@@ -217,13 +228,16 @@ def test_fetch_muninn_utils_network_failure_is_safe():
     def boom(*args, **kwargs):
         raise RuntimeError("simulated network failure")
 
-    with patch("scripts.utilities.urllib.request.urlopen", side_effect=boom):
+    with _no_local_src(), patch("scripts.utilities.urllib.request.urlopen", side_effect=boom):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = utilities.UTIL_DIR
             utilities.UTIL_DIR = tmpdir
             try:
                 result = utilities.fetch_muninn_utils()
-                assert result == {"fetched": [], "failed": [], "use_when": {}}
+                # `source` distinguishes an empty materialization from a
+                # populated one; nothing landed here, so it must say none.
+                assert result == {"fetched": [], "failed": [], "use_when": {},
+                                  "source": "none"}
             finally:
                 utilities.UTIL_DIR = old_dir
 
@@ -234,14 +248,17 @@ def test_fetch_muninn_utils_corrupt_tarball_is_safe():
     """A non-tarball response returns cleanly without raising."""
     from scripts import utilities
 
-    with patch("scripts.utilities.urllib.request.urlopen",
+    with _no_local_src(), patch("scripts.utilities.urllib.request.urlopen",
                return_value=_FakeUrlopen(b"not a tarball")):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = utilities.UTIL_DIR
             utilities.UTIL_DIR = tmpdir
             try:
                 result = utilities.fetch_muninn_utils()
-                assert result == {"fetched": [], "failed": [], "use_when": {}}
+                # `source` distinguishes an empty materialization from a
+                # populated one; nothing landed here, so it must say none.
+                assert result == {"fetched": [], "failed": [], "use_when": {},
+                                  "source": "none"}
             finally:
                 utilities.UTIL_DIR = old_dir
 
@@ -259,7 +276,7 @@ def test_fetch_muninn_utils_skips_non_py_and_subdirs():
         "other_dir/something.py": b"# wrong subdir",
     })
 
-    with patch("scripts.utilities.urllib.request.urlopen",
+    with _no_local_src(), patch("scripts.utilities.urllib.request.urlopen",
                return_value=_FakeUrlopen(tarball)):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = utilities.UTIL_DIR
@@ -275,6 +292,57 @@ def test_fetch_muninn_utils_skips_non_py_and_subdirs():
                 utilities.UTIL_DIR = old_dir
 
     print("PASS: fetch_muninn_utils skips non-.py and subdir files")
+
+
+def test_fetch_muninn_utils_prefers_sideloaded_tree_over_network():
+    """The sideloaded tree wins and the network is never touched.
+
+    Regression for 2026-09-19: the codeload fetch is intercepted by the egress
+    proxy in Cowork and scheduled-runner sessions, so it materialized nothing
+    with nothing in `failed`, and the manifest audit read that as a clean zero.
+    """
+    from scripts import utilities
+
+    def boom(*args, **kwargs):
+        raise AssertionError("network must not be reached when the local tree exists")
+
+    with tempfile.TemporaryDirectory() as src:
+        os.makedirs(os.path.join(src, "muninn_utils"))
+        os.makedirs(os.path.join(src, "manifests", "bsky-limit"))
+        with open(os.path.join(src, "muninn_utils", "bsky_limit.py"), "w") as fh:
+            fh.write("# sideloaded bsky_limit\n")
+        with open(os.path.join(src, "muninn_utils", "use_when.json"), "w") as fh:
+            fh.write('{"bsky_limit": "check the 300-grapheme cap"}')
+        with open(os.path.join(src, "muninn_utils", "tests"), "w") as fh:
+            fh.write("not a dir, must be ignored as non-.py")
+        mpath = os.path.join(src, "manifests", "bsky-limit", "muninn-bsky-limit.v0.4.json")
+        with open(mpath, "w") as fh:
+            fh.write('{"name": "bsky-limit"}')
+
+        with patch("scripts.utilities.MUNINN_UTILS_SRC", src), \
+                patch("scripts.utilities.urllib.request.urlopen", side_effect=boom):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                old_dir, old_man = utilities.UTIL_DIR, utilities.MANIFEST_DIR
+                utilities.UTIL_DIR = tmpdir
+                utilities.MANIFEST_DIR = os.path.join(tmpdir, "manifests")
+                try:
+                    result = utilities.fetch_muninn_utils()
+                    assert result["source"] == "local", result
+                    assert result["fetched"] == ["bsky_limit.py"], result
+                    assert result["failed"] == []
+                    assert result["use_when"] == {"bsky_limit": "check the 300-grapheme cap"}
+                    with open(os.path.join(tmpdir, "bsky_limit.py")) as fh:
+                        assert fh.read() == "# sideloaded bsky_limit\n"
+                    # use_when.json is parsed in memory, never written to disk
+                    assert not os.path.exists(os.path.join(tmpdir, utilities.USE_WHEN_FILE))
+                    # manifests land under their per-utility directory
+                    assert os.path.exists(os.path.join(
+                        utilities.MANIFEST_DIR, "bsky-limit", "muninn-bsky-limit.v0.4.json"))
+                finally:
+                    utilities.UTIL_DIR = old_dir
+                    utilities.MANIFEST_DIR = old_man
+
+    print("PASS: fetch_muninn_utils prefers the sideloaded tree")
 
 
 # ── 2. LIKE wildcard injection ──
@@ -752,6 +820,7 @@ if __name__ == "__main__":
         test_fetch_muninn_utils_network_failure_is_safe,
         test_fetch_muninn_utils_corrupt_tarball_is_safe,
         test_fetch_muninn_utils_skips_non_py_and_subdirs,
+        test_fetch_muninn_utils_prefers_sideloaded_tree_over_network,
         # 2. LIKE wildcards
         test_escape_like,
         test_like_escape_in_fts5_search,

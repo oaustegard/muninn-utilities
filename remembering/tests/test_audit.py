@@ -362,6 +362,35 @@ def test_audit_summary_reports_audited_count():
         assert "2" in result["summary"]
 
 
+def test_audit_empty_dirs_report_not_audited_not_a_clean_zero():
+    """Nothing to read is not the same fact as everything being manifested.
+
+    Regression for 2026-09-19: fetch_muninn_utils() materialized nothing, both
+    dirs came out empty, and the audit printed `0 of 0 utilities manifested, 0
+    warnings` on the boot output — indistinguishable from a pass.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        manifests = os.path.join(tmp, "manifests")
+        modules = os.path.join(tmp, "muninn_utils")
+        os.makedirs(manifests)
+        os.makedirs(modules)
+
+        result = audit.audit(manifests, modules, env={})
+        assert "NOT AUDITED" in result["summary"], result["summary"]
+        assert "0 of 0 utilities manifested" not in result["summary"]
+        assert any("nothing to read" in w for w in result["warnings"]), result["warnings"]
+
+
+def test_audit_missing_dirs_report_not_audited():
+    with tempfile.TemporaryDirectory() as tmp:
+        manifests = os.path.join(tmp, "nope-manifests")
+        modules = os.path.join(tmp, "nope-modules")
+
+        result = audit.audit(manifests, modules, env={})
+        assert "NOT AUDITED" in result["summary"], result["summary"]
+        assert "missing:" in result["summary"], result["summary"]
+
+
 def test_audit_flags_unconfigured_required_env():
     with tempfile.TemporaryDirectory() as tmp:
         manifests, modules = _make_repo(
@@ -479,6 +508,8 @@ if __name__ == "__main__":
         test_index_diff_ignores_dunder_and_tests_dir,
         test_audit_returns_dict_with_summary_and_warnings_keys,
         test_audit_summary_reports_audited_count,
+        test_audit_empty_dirs_report_not_audited_not_a_clean_zero,
+        test_audit_missing_dirs_report_not_audited,
         test_audit_flags_unconfigured_required_env,
         test_audit_flags_scope_drift,
         test_audit_flags_index_drift,

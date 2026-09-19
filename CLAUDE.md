@@ -75,16 +75,20 @@ the mount, not from this package.
 | Turso credentials | `TURSO_TOKEN`, `TURSO_URL` from env |
 | muninn_utils materialized path | `~/muninn_utils/` |
 | remembering skill path | `/mnt/skills/user/remembering/` |
-| Manifests | `manifests/<utility-name>.json` (one per util) |
+| Manifests | `manifests/<utility-name>/muninn-<utility-name>.vX.Y.json` (dir per util; audit takes the highest version) |
 | Claude.ai boot fetcher | `oaustegard/claude-skills#625` (in remembering) |
 | CCotw boot fetcher | `oaustegard/claude-workspace#55` |
 | Release tag format | `vX.Y.Z` (bump `remembering/CHANGELOG.md` first) |
 
 ## Parsing Schema
 
-- **Utility manifest** (`manifests/<name>.json`): describes when to use the
-  utility, its parameters, and env requirements. The `indirect: true` env
-  field flags vars accessed transitively (skip drift check for those).
+- **Utility manifest** (`manifests/<name>/muninn-<name>.vX.Y.json`): describes
+  when to use the utility, its parameters, and env requirements. The
+  `indirect: true` env field flags vars accessed transitively (skip drift check
+  for those). One directory per utility, one or more versioned files inside;
+  `audit._find_manifest_file` picks the highest `(major, minor)` and older
+  versions stay on disk for tooling pinned to them. A flat
+  `manifests/<name>.json` glob matches nothing and is the shape to distrust.
 - **`use_when.json`**: routing hints for utility selection — which utility
   handles which task shape.
 - **`remembering/references/`**: field reference for recall(), remember(), and
@@ -168,8 +172,9 @@ precedence.
 
 ## Reusable Results
 
-- **Adding a utility**: add `muninn_utils/<name>.py`, `manifests/<name>.json`,
-  update `muninn_utils/__init__.py`, run tests.
+- **Adding a utility**: add `muninn_utils/<name>.py`,
+  `manifests/<name>/muninn-<name>.vX.Y.json`, update `muninn_utils/__init__.py`,
+  run tests.
 - **Tests**: `python3 -m pytest muninn_utils/tests/` and
   `python3 remembering/tests/test_hardening.py`
 - **Migration history**: memory `0d63ed4f`; `README.md` background section;

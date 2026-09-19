@@ -323,10 +323,31 @@ def audit(
         warnings.append(f"modules with no manifest or capability entry: {', '.join(undeclared)}")
 
     total_modules = len(_module_stems(module_dir))
-    summary = (
-        f"manifest audit: {audited} of {total_modules} utilities manifested, "
-        f"{len(warnings)} warnings"
-    )
+
+    # Nothing on either side means the audit had nothing to read, which is a
+    # different fact from "every module is manifested". Reported as `0 of 0 ...
+    # 0 warnings` it read as a pass for a month while fetch_muninn_utils() was
+    # silently returning an empty materialization (2026-09-19): a clean zero
+    # over two empty directories. Say so instead, and warn.
+    if not manifest_dirs and total_modules == 0:
+        missing = [d for d in (manifest_dir, module_dir) if not os.path.isdir(d)]
+        detail = (
+            f"missing: {', '.join(missing)}" if missing
+            else f"both empty: {manifest_dir}, {module_dir}"
+        )
+        warnings.append(
+            f"audit had nothing to read ({detail}) — utilities were not "
+            f"materialized, so this is not a passing audit"
+        )
+        summary = (
+            f"manifest audit: NOT AUDITED — no manifests and no modules found "
+            f"({detail}), {len(warnings)} warnings"
+        )
+    else:
+        summary = (
+            f"manifest audit: {audited} of {total_modules} utilities manifested, "
+            f"{len(warnings)} warnings"
+        )
 
     if emit_to_stderr and warnings:
         for w in warnings:
