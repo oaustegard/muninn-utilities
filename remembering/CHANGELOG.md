@@ -2,6 +2,40 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.19.0] - 2026-09-19
+
+### Added
+
+- `fetch_muninn_utils()` reads `MUNINN_UTILS_SRC` (default
+  `/home/claude/muninn-utilities`) before the network. That is the tree `boot.sh`
+  has already sideloaded through whichever of its three transports works in the
+  session, so the utilities land without a second fetch. The codeload tarball
+  stays as the fallback.
+- `source` in the returned dict: `local`, `codeload` or `none`, recording where
+  the code came from. An unreadable or empty tarball reports `none`, so a caller
+  can tell an empty materialization from a populated one.
+- `audit()` reports `NOT AUDITED` with a warning when it finds neither manifests
+  nor modules, naming the directories that were missing or empty.
+- Tests for the local-first path (fails if the network is reached), and for both
+  empty-directory and missing-directory audits.
+
+### Fixed
+
+- `fetch_muninn_utils()` fetched codeload.github.com directly with no auth. The
+  egress proxy intercepts that host in Cowork and scheduled-runner sessions, so
+  the fetch materialized nothing, recorded nothing in `failed`, and left
+  `~/muninn_utils` holding only `__init__.py`.
+- The manifest audit printed `0 of 0 utilities manifested, 0 warnings` over two
+  empty directories, which is indistinguishable from a pass. Measured after the
+  fix on the same container: `20 of 36 utilities manifested, 9 warnings`.
+- Five `fetch_muninn_utils` hardening tests mocked `urlopen` and asserted on the
+  tarball path that the local-first read now short-circuits. They pin
+  `MUNINN_UTILS_SRC` at a nonexistent path, which also makes them hermetic: they
+  were green in CI, where no sideloaded tree exists, and red in any booted
+  container, where one does.
+- `CLAUDE.md` documented `manifests/<name>.json`. The layout is
+  `manifests/<name>/muninn-<name>.vX.Y.json`, one directory per utility.
+
 ## [5.18.0] - 2026-09-17
 
 ### Added
