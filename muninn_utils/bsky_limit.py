@@ -3,8 +3,11 @@ try:
     import grapheme
 except ImportError:
     import subprocess, sys
+    # --use-pep517 is required: grapheme ships sdist-only, and the legacy
+    # setup.py path dies on Debian-patched setuptools with
+    # "AttributeError: install_layout" (setuptools/command/install_lib.py).
     subprocess.check_call([sys.executable, "-m", "pip", "install", "grapheme",
-                           "--break-system-packages", "--quiet"])
+                           "--break-system-packages", "--use-pep517", "--quiet"])
     import grapheme
 
 BSKY_LIMIT = 300
