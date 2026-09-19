@@ -25,7 +25,7 @@ muninn-utilities/
 │   │   └── tasks/          # Routine definitions (fly, sleep, zeitgeist, …)
 │   ├── references/
 │   ├── tests/
-│   ├── MANIFEST.txt        # File list for the raw.githubusercontent transport
+│   ├── MANIFEST.txt        # Legacy file list; boot.sh 2.0.0 clones instead
 │   └── CHANGELOG.md
 ├── muninn_utils/           # Importable Python package
 │   ├── use_when.json       # Routing hint per module — the live catalog
@@ -45,37 +45,23 @@ version of this file. `muninn_utils/use_when.json` carries one routing line per
 module and is what boot renders; `CLAUDE.md` carries the same list with one-line
 descriptions.
 
-## What boot.sh does, in order
+## What boot.sh does
 
-`muninn-boot/scripts/boot.sh` runs as the first action of every Muninn
-conversation, in this order:
+`muninn-boot/scripts/boot.sh` (2.0.0) runs as the first action of every Muninn
+conversation and does one thing: `git clone --depth 1` this repo to
+`/home/claude/muninn-utilities` (codeload tarball as fallback where the session's
+git proxy refuses github.com) and write a `.pth` so `muninn_utils`,
+`remembering` and every skill's `scripts/` import. `GitHub.env` is sourced if
+present, transitionally, until GitHub write tools exist on the worker.
 
-1. **Source env** from `$MUNINN_PROJECT_DIR` (default `/mnt/project`) with
-   `set -a`, so values overwrite rather than merge. First, because the tarball
-   transport needs `GH_TOKEN`.
-2. **Sideload muninn-utilities** → `/home/claude/muninn-utilities`.
-3. **Sideload claude-skills** → `/mnt/skills/user` (general skills: `flowing`,
-   `browsing-bluesky`, `declauding`, …).
-4. **Write the `.pth`** at a site-packages directory resolved at runtime —
-   `python3.12/dist-packages` on Claude.ai, `python3.11/site-packages` in
-   Cowork.
-5. **Run `boot()`** from `remembering/scripts/boot.py`: identity, profile, ops,
-   recent memories, task routing, capability catalog.
-6. **Touch the sentinel** last, only on success. A warm container fast-exits in
-   ~0s, so re-running boot is cheap and idempotent.
+It sources no `Turso.env` and does not run `boot()`: the payload comes from the
+Muninn MCP connector's `boot` tool, and memory reads and writes go through the
+connector. It does not sideload claude-skills either; marketplace sync already
+places them in the session. Pin `MUNINN_UTILS_REF=<sha>` to test an unmerged
+state.
 
-Each sideload has three transports, tried in order: the codeload tarball (one
-request, where codeload is not intercepted), `gh-api-proxy`'s `/tarball` (one
-request, follows the 302 server-side so the session never touches a blocked
-host), and `raw.githubusercontent.com` plus `MANIFEST.txt` (one request per
-file, needs no credentials at all).
-
-`raw` is CDN-cached on branch refs for minutes and the cache is not
-client-bustable, so a tier-3 boot shortly after a push silently loads pre-push
-code. Pin `MUNINN_UTILS_REF=<sha>` when iterating.
-
-Both [`oaustegard/claude-workspace`](https://github.com/oaustegard/claude-workspace)
-(Claude Code on the Web) and the Claude.ai project instructions point here.
+`remembering/scripts/boot.py` is what the worker ports; it still runs from a
+checkout with Turso credentials in the environment.
 
 ## GitHub transport (`muninn_utils/gh_proxy.py`)
 
@@ -112,26 +98,11 @@ Three things this encodes that cost four weeks to learn:
 3. **Writes go through the Git Data API**, not the Contents API — the latter is
    write-blocked through the session proxy even with `add_repo` push access.
 
-## Sideload manifest (`remembering/MANIFEST.txt`)
+## Sideload manifest (`remembering/MANIFEST.txt`) — legacy
 
-`raw.githubusercontent.com` is *not* intercepted, so it is the fallback transport
-when codeload is blocked. But raw has no directory listing, and deriving the file
-list by walking `from .x import` statements misses every runtime **data** file
-(`scripts/defaults/*.json`, `scripts/tasks/*.md`). Symptom: boot succeeds but the
-Task Routing block silently renders empty.
-
-`MANIFEST.txt` is that list, and it covers `muninn_utils/` as well as
-`remembering/`. A runtime file missing from it is invisible to a tier-3 boot:
-present on Claude.ai, absent in Cowork, with no error in either place. Regenerate
-after adding or removing one:
-
-```bash
-python3 remembering/scripts/gen_manifest.py           # from a checkout
-python3 remembering/scripts/gen_manifest.py --check   # exit 1 if stale
-```
-
-No workflow in this repo runs `--check`. It is a pre-push step, and the only
-actor that runs it is whoever added the file.
+Not read by boot.sh 2.0.0, which clones. Kept for any raw.githubusercontent
+consumer that still needs a file list; regenerate with
+`python3 remembering/scripts/gen_manifest.py` if you touch it.
 
 ## Install manifests (`manifests/`)
 
