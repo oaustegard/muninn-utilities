@@ -42,6 +42,14 @@ PROXY=${GH_API_PROXY:-https://gh-api-proxy.austegard.workers.dev}
 # project docs there, and the session writes them here before calling this).
 PROJECT_DIR=${MUNINN_PROJECT_DIR:-/mnt/project}
 
+# Where the full boot payload is teed. boot() prints ~29k tokens, and a session
+# that wraps this script in `| tail -N` loses the head of it silently — then
+# pays 11s and a SECOND 29k-token copy re-running boot() to see what it cut
+# (measured 2026-09-19, and that is exactly how it went). The footer at the end
+# names this file, and the footer is last precisely so a `| tail` still shows it.
+BOOT_LOG=${MUNINN_BOOT_LOG:-/tmp/muninn-boot.log}
+TRANSPORT_LOG=/tmp/muninn-boot-transport
+
 # Warm-container fast path. The project instruction is reinjected every message,
 # so this script is invoked many times per conversation. The sentinel's lifetime
 # is the container's: a recycled container lacks it and fetches fresh; a warm one
@@ -51,6 +59,9 @@ if [ -z "$BOOT_MODE" ] \
    && [ -f "$SENTINEL" ] \
    && [ -d /home/claude/muninn-utilities/muninn_utils ]; then
   echo "warm boot: already fetched this container. rm $SENTINEL to re-pull main."
+  if [ -f "$BOOT_LOG" ]; then
+    echo "  cold-boot payload for this container: $BOOT_LOG"
+  fi
   exit 0
 fi
 
@@ -184,18 +195,30 @@ PY
 fi
 
 # ── sideload: codeload -> gh-api-proxy tarball -> raw+MANIFEST ────────────────
+# Which tier actually served each repo. The per-tier echoes below scroll past in
+# the payload and do not survive a truncated read, so record them for the footer:
+# a session that guesses the tier from the script's preference order reports the
+# wrong one (done 2026-09-19 — claimed tier 1 in a session where codeload was 403).
+: > "$TRANSPORT_LOG"
+note_transport() { echo "$(basename "$1"): $2" >> "$TRANSPORT_LOG"; }
+
 sideload() {  # repo ref destdir manifest-path-or-empty
   local repo=$1 ref=$2 dest=$3 man=$4
   if fetch_tarball "$repo" "$ref" "$dest"; then
-    echo "  codeload tarball ok (1 request)"; return 0
+    echo "  codeload tarball ok (1 request)"
+    note_transport "$repo" "tier 1 codeload"; return 0
   fi
   if fetch_via_proxy "$repo" "$ref" "$dest"; then
-    echo "  gh-api-proxy tarball ok (1 request)"; return 0
+    echo "  gh-api-proxy tarball ok (1 request)"
+    note_transport "$repo" "tier 2 gh-api-proxy"; return 0
   fi
   if [ -n "$man" ]; then
     echo "  both tarball paths unavailable -> raw + $man (one request per file)"
-    fetch_via_manifest "$repo" "$ref" "$dest" "$man" && return 0
+    if fetch_via_manifest "$repo" "$ref" "$dest" "$man"; then
+      note_transport "$repo" "tier 3 raw+manifest"; return 0
+    fi
   fi
+  note_transport "$repo" "FAILED"
   return 1
 }
 
@@ -238,10 +261,21 @@ for d in /mnt/skills/user/*/scripts/; do
 done
 echo "python path: $PTH"
 
-python3 << 'PYBOOT'
+python3 << 'PYBOOT' | tee "$BOOT_LOG"
 import os
 from scripts import boot
 print(boot(mode=os.environ.get('BOOT_MODE')))
 PYBOOT
+
+# ── footer: last, so it survives `| tail` ────────────────────────────────────
+CHARS=$(wc -c < "$BOOT_LOG")
+echo
+echo "── boot complete ────────────────────────────────────────────────"
+sed 's/^/  transport: /' "$TRANSPORT_LOG" 2>/dev/null || true
+echo "  payload:   $CHARS chars (~$((CHARS / 4)) tokens), full copy at $BOOT_LOG"
+echo "  If you piped this through head/tail, read $BOOT_LOG."
+echo "  Do NOT re-run boot() to recover it — that is 11s and a second copy."
+echo "  Ledger is NOT in this payload (4.6s, 6.7k chars of its own). Run it"
+echo "  when deciding whether to prune: python3 -m muninn_utils.boot_ledger"
 
 touch "$SENTINEL"   # last line, only on success

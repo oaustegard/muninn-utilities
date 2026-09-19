@@ -75,10 +75,37 @@ GitHub directly. Two consequences that cost ~28 failed routine runs:
 3. **Sideload claude-skills** → `/mnt/skills/user`. Tiers 1–2 only; no manifest
    in that repo. If both fail, the plugin-synced copies under
    `/root/.claude/plugins/synced/` serve instead.
-4. **Write the `.pth`** at a site-packages directory resolved at runtime — it is
-   `python3.12/dist-packages` on Claude.ai and `python3.11/site-packages` in
-   Cowork. Then run `boot()` and print its output.
+4. **Write the `.pth`** at a site-packages directory resolved at runtime from
+   `sys.path`, preferring a writable entry. Measured 2026-09-19, the target is
+   `/root/.local/lib/python3.11/site-packages`. Do not hardcode it, and do not
+   trust a path quoted in prose — including this file's, which said
+   `python3.11/site-packages` (a directory that does not exist) until that same
+   measurement. `/usr/local/lib/python3.12/dist-packages` still exists but is
+   **not on `sys.path`**, so a `.pth` written there succeeds and is silently
+   inert, which is worse than erroring. Then run `boot()`, tee it to the boot
+   log, and print the footer.
 5. **Touch the sentinel** last, only on success.
+
+## Reading the output
+
+`boot()` prints ~29k tokens. `boot.sh` tees that to `/tmp/muninn-boot.log`
+(override with `MUNINN_BOOT_LOG`) and ends with a footer naming the log, the
+transport tier each repo actually used, and the payload size. The footer is
+**last** so it survives `| tail`.
+
+If you truncated the payload, read the log. Re-running `boot()` to recover the
+head costs 11s and puts a second copy of the same 29k tokens in context — the
+failure this footer exists to prevent.
+
+The boot-payload ledger is deliberately **not** in the payload; it costs 4.6s
+and 6.7k chars of its own. Run it when deciding whether to prune:
+
+```bash
+python3 -m muninn_utils.boot_ledger
+```
+
+It leads with an `INSTRUMENT STATE` verdict and suppresses its own demotion
+list until the window is mature. Cut on `attr`, never on `logged`.
 
 ## Three transports
 
