@@ -51,13 +51,24 @@ README.md                 Layout + migration history (read this for full context
 
 ## Context Understanding
 
-Boot sequence (both CCotw and Claude.ai):
-1. `muninn-utilities` tarball fetched fresh
-2. `remembering/` overlaid onto `/mnt/skills/user/remembering/`
-3. `muninn_utils/*.py` materialized into `~/muninn_utils/`
-4. `boot()` called from `remembering/scripts/boot.py` — loads identity,
-   profile, ops, and recent memories from Turso
-5. `claude-skills` tarball fetched for general skills
+Boot sequence (muninn-boot 2.0.0, Cowork and Claude.ai):
+1. `muninn-boot/scripts/boot.sh` shallow-clones this repo to
+   `/home/claude/muninn-utilities` (codeload tarball as fallback) and writes
+   `muninn-remembering.pth` at a site-packages dir resolved from `sys.path`
+   at runtime, listing the clone, `remembering/`, `$HOME` and skill
+   `scripts/` dirs.
+2. The Muninn MCP connector's `boot` tool delivers identity, ops and recent
+   memories. The payload arrives in parts: call `boot`, then `boot({part: 2})`
+   and any further part its footer names.
+3. Memory reads and writes go through the connector's `recall` / `remember` /
+   `forget` / `muninn_config` tools. The container holds no Turso credential.
+4. `claude-skills` arrives via marketplace sync
+   (`/root/.claude/skills/synced/<id>/` in Cowork, `/mnt/skills/user` on
+   Claude.ai), not sideloaded by the boot script.
+
+`remembering/scripts/boot.py` still exists for the worker and for legacy
+callers (pre-2.0.0 muninn-boot, boot-ccotw.sh); it is no longer run by
+`boot.sh`.
 
 The `remembering/` mirror in `claude-skills` is auto-synced FROM this repo via
 a scheduled workflow in claude-skills. It is deprecated — kept for marketplace
@@ -73,7 +84,7 @@ the mount, not from this package.
 |---|---|
 | remembering boot script | `remembering/scripts/boot.py` |
 | Turso credentials | `TURSO_TOKEN`, `TURSO_URL` from env |
-| muninn_utils materialized path | `~/muninn_utils/` |
+| muninn_utils materialized path | `~/muninn_utils/` (legacy `boot()` path; under muninn-boot 2.0.0 the package is imported from the clone at `/home/claude/muninn-utilities/muninn_utils/`) |
 | remembering skill path | `/mnt/skills/user/remembering/` |
 | Manifests | `manifests/<utility-name>/muninn-<utility-name>.vX.Y.json` (dir per util; audit takes the highest version) |
 | Claude.ai boot fetcher | `oaustegard/claude-skills#625` (in remembering) |
