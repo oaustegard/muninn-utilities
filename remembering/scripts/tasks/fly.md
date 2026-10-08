@@ -21,11 +21,24 @@ Unlike zeitgeist, fly does NOT skip on "too soon" — it runs whenever dispatche
 
 ### Phase 1: Orient (1-2 turns)
 
-1. `recall(tags=["session-log", "fly"], n=3)` — recent flight logs. Where you've already been.
-2. `list_discussions(limit=5)` — recent discussions for threads Oskar engaged with (reactions, comments). His engagement signals interest.
-3. **Pick a direction** per `policy['instructions']` preference order, favoring areas you haven't explored recently.
+1. The last 7 flight logs, straight from GitHub, printed verbatim:
+   ```python
+   from muninn_utils.perch_publish import list_flight_logs, format_flight_window
+   print(format_flight_window(list_flight_logs(7)))
+   ```
+   Name each log's domain in thinking, citing its date and number. Do NOT build
+   this window from `recall()`: a capped, unsorted or stale recall is how flies
+   called a domain "cold" that had been flown days earlier (7 sessions, up to 40
+   turns each, transcript sweep 2026-10-08). `list_flight_logs` raises rather
+   than return a short window.
+2. `from muninn_utils.perch_triage import fetch_open_logs; fetch_open_logs(limit=10)`
+   — open flight logs with their reactions and Oskar's comments. His engagement
+   signals interest. (There is no `list_discussions`; sessions guessed at it.)
+3. **Pick a direction** per `policy['instructions']` (the fly-command STEP 0
+   diversity check): a domain ABSENT from the 7-flight window, unless the repeat
+   override's named primary artifact applies.
 
-**The rule**: If your last 3 flights all explored the same domain, you MUST pick a different one. Breadth is the mission.
+**The rule**: the domain you pick must not appear in the printed window. Breadth is the mission.
 
 **IMPORTANT: Reserve your last 3 turns for Phase 3+4. Phase 4 requires `create_discussion` — mandatory.**
 

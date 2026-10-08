@@ -36,7 +36,7 @@ Then proceed:
 
 1. `recall(tags=["perch-homework", "pending"], tag_mode="all", n=5)` — check for queued homework from Muninn
 2. `recall(tags=["session-log", "perch-time"], n=5)` — recent session history
-3. `list_discussions(limit=5)` — recent flight logs to see what was explored and surface threads worth continuing
+3. `print(format_flight_window(list_flight_logs(7)))` (from `muninn_utils.perch_publish`) — recent flight logs, newest first, to see what was explored; `perch_triage.fetch_open_logs(limit=10)` for threads Oskar reacted to or commented on
 4. Note when each task last ran and what it found
 5. If recent flight logs suggest an interesting thread to continue, factor that into your routing decision
 6. Check your boot context for incomplete tasks or pending items
