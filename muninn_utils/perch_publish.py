@@ -376,3 +376,71 @@ def publish_flight_log(number, repo=REPO):
     print(f"  ✓ Published: {url}")
     print(f"  ✓ Commit: {commit_sha[:8]}")
     return {"url": url, "slug": slug, "commit_sha": commit_sha, "filename": filename}
+
+
+# Size of the diversity window the fly routine's STEP 0 reads. date: 2026-10-08
+FLIGHT_WINDOW = 7
+
+
+def list_flight_logs(n=FLIGHT_WINDOW):
+    """Return the n newest flight logs in the mac Flight Log category, newest first.
+
+    WHY (date: 2026-10-08): the fly routine's STEP 0 diversity check needs the last
+    7 flight logs. Sessions built that window from recall() calls capped at 3,
+    unsorted, or missing recent days, then declared a domain "cold" and spent
+    15-40 turns researching something flown days earlier. This asks GitHub for the
+    category directly, ordered by creation time, so the window is the discussion
+    list itself and not whatever memory happened to surface.
+
+    Returns [{number, title, created_at, url}], newest first. created_at is the
+    GitHub ISO-8601 timestamp (UTC).
+
+    Raises RuntimeError rather than returning a short window. If the category
+    holds at least n logs but fewer came back, the caller would otherwise get a
+    silently truncated diversity set and treat it as complete.
+    """
+    from . import gh_proxy
+    if not 1 <= n <= 100:
+        raise ValueError(f"n must be between 1 and 100 (GraphQL first:), got {n}")
+    owner, name = REPO.split("/", 1)
+    data = gh_proxy.graphql(
+        """query($owner: String!, $name: String!, $n: Int!, $cat: ID!) {
+            repository(owner: $owner, name: $name) {
+                discussions(first: $n, categoryId: $cat,
+                            orderBy: {field: CREATED_AT, direction: DESC}) {
+                    totalCount
+                    nodes { number title createdAt url }
+                }
+            }
+        }""",
+        {"owner": owner, "name": name, "n": n, "cat": FLIGHT_LOG_CATEGORY_ID})
+    repo = data.get("repository")
+    if repo is None:
+        raise RuntimeError(f"GitHub repository {REPO} not found for flight-log window")
+    conn = repo["discussions"]
+    nodes = conn["nodes"]
+    if len(nodes) < n and conn["totalCount"] >= n:
+        raise RuntimeError(
+            f"flight-log window short: asked for {n}, got {len(nodes)} of "
+            f"{conn['totalCount']} in the Flight Log category")
+    return [{"number": d["number"], "title": d["title"],
+             "created_at": d["createdAt"], "url": d["url"]} for d in nodes]
+
+
+def format_flight_window(logs):
+    """Render list_flight_logs() output as the block the fly routine prints verbatim.
+
+    Header line: the log count and the UTC date span. Then one line per log,
+    "YYYY-MM-DD  #N  title", in the order given (newest first from
+    list_flight_logs). Dates are taken in UTC so the lines agree with the header.
+    date: 2026-10-08
+    """
+    if not logs:
+        return "0 flight logs in the Flight Log category"
+    dates = [datetime.fromisoformat(log["created_at"].replace("Z", "+00:00"))
+             .astimezone(timezone.utc).date().isoformat() for log in logs]
+    header = (f"{len(logs)} flight logs, {min(dates)} to {max(dates)} (UTC), "
+              f"newest first")
+    lines = [f"{d}  #{log['number']}  {log['title']}"
+             for d, log in zip(dates, logs)]
+    return "\n".join([header, *lines])

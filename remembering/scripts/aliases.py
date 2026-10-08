@@ -48,6 +48,10 @@ ALIASES: dict[str, dict[str, str]] = {
         "limit": "n",       # was silently translated in-body; surface it now
         "keywords": "tags",
         "types": "type",
+        # date: 2026-10-08 — get(memory_id) is the name callers reach for when
+        # they want recall-by-id; route it to the id= / ids= by-id lookup.
+        "memory_id": "id",
+        "memory_ids": "ids",
     },
     "recall_since": {
         "max_results": "n",

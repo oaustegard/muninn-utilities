@@ -7,9 +7,8 @@ Replaces plain dicts returned by recall() to catch field name errors at access t
 
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Iterator, List, Optional, Set
+from typing import Any, Iterator, List, Set
 from zoneinfo import ZoneInfo
-
 
 # Valid fields that can be accessed on memory results
 VALID_FIELDS: Set[str] = {
@@ -302,9 +301,28 @@ class MemoryResultList(list):
 
     Behaves exactly like a normal list but ensures all elements
     are MemoryResult objects. Provides helpful __repr__ for debugging.
+
+    date: 2026-10-08. Carries the ``limit`` (the ``n`` the query ran with) so a
+    result that hit it is marked. recall() returns at most n rows, so a length
+    equal to n is a lower bound on the store, not a total: sessions that got
+    exactly 500 back for recall(n=500) reported "store healthy, 500 total".
+    ``capped`` is True when limit is set and len(self) >= limit; the repr then
+    says so and points at count(), the exact figure.
     """
 
+    def __init__(self, iterable=(), *, limit: int | None = None):
+        super().__init__(iterable)
+        self.limit = limit
+
+    @property
+    def capped(self) -> bool:
+        """True when the result reached its limit, so more rows may exist."""
+        return self.limit is not None and len(self) >= self.limit
+
     def __repr__(self) -> str:
+        if self.capped:
+            return (f"MemoryResultList([{len(self)} memories, CAPPED at n={self.limit}: "
+                    f"more may exist, use count()])")
         if not self:
             return "MemoryResultList([])"
         return f"MemoryResultList([{len(self)} memories])"
@@ -400,7 +418,7 @@ def _convert_timestamp_to_local(data: dict, field: str) -> None:
         pass  # Leave original value on parse failure
 
 
-def _format_relative_age(created_at: str, now: Optional[datetime] = None) -> Optional[str]:
+def _format_relative_age(created_at: str, now: datetime | None = None) -> str | None:
     """Render a UTC ISO timestamp as a human-scale duration string.
 
     Issue #19: Muninn has no felt sense of duration. Without this rendering,
@@ -492,19 +510,22 @@ def normalize_to_utc(ts: str) -> str:
         return ts
 
 
-def wrap_results(results: List[dict]) -> MemoryResultList:
+def wrap_results(results: List[dict], limit: int | None = None) -> MemoryResultList:
     """Wrap a list of memory dicts in MemoryResult objects.
 
     v3.7.0: Normalizes all results to have consistent computed fields
     regardless of whether they came from cache or Turso.
+    date: 2026-10-08: ``limit`` records the query's n so the result can report
+    ``capped`` (see MemoryResultList).
 
     Args:
         results: List of memory dictionaries from database queries
+        limit: The n the query ran with, or None when the query had no cap
 
     Returns:
         MemoryResultList containing MemoryResult objects
     """
-    wrapped = MemoryResultList()
+    wrapped = MemoryResultList(limit=limit)
     for r in results:
         if isinstance(r, MemoryResult):
             wrapped.append(r)

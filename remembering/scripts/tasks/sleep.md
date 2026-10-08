@@ -56,9 +56,12 @@ went six and a half months without a usable snapshot.
 3. Check for stale memories — old observations that are no longer relevant.
 4. **Prune session-log scaffolding (issue #56).** The `SLEEP SESSION` / `FLY SESSION` `experience` logs are the dominant growth term (~10.6% of the store as of the memory-redundancy probe). Routine logs past 60 days at priority ≤0 add no recall value; promoted logs (priority ≥1) are preserved by the floor.
    ```python
-   prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'], dry_run=False)
+   preview = prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'], dry_run=True)
+   # spot-check preview['ids'] (sample the memories with memory_get) before applying
+   prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'], dry_run=False,
+                expect_ids=preview['ids'])
    ```
-   For first-time runs against a store that has accumulated past 60 days, dry-run first and spot-check before applying.
+   The live prune is two-step by design (date: 2026-10-08): `dry_run=False` raises `ValueError` without `expect_ids`, and deletes nothing unless the live candidate set equals `expect_ids`. Do not pass `expect_ids` from memory or retype it; use the `ids` the dry run returned in this session.
 5. Delete noise. Be decisive — but honor any "preserve aggressively" preferences from Phase 0.
 
 ### Phase 2: Synthesis (growth)

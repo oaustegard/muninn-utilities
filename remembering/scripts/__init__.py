@@ -35,6 +35,8 @@ from .memory import (
     failed_writes, retry_failed_writes, clear_failed_writes,
     recall, _update_access_tracking, _query,
     recall_since, recall_between,
+    get,  # date: 2026-10-08 — by-id fetch; was defined in memory.py but never exported
+    count,  # date: 2026-10-08 — exact COUNT(*); recall(n=) results are capped
     forget, supersede, reprioritize,
     strengthen, weaken,
     memory_histogram, prune_by_age, prune_by_priority,  # v3.2.0: retention helpers
@@ -102,9 +104,14 @@ from .spokes import (
 r = remember
 q = recall
 j = journal
+# date: 2026-10-08 — the MCP connector's by-id tool is named memory_get; sessions
+# reach for that name in the Python API too.
+memory_get = get
 
 __all__ = [
     "remember", "recall", "forget", "supersede", "remember_bg", "flush",  # memories
+    "get", "memory_get",  # by-id fetch (date: 2026-10-08)
+    "count",  # exact count; a recall at its limit is a lower bound (date: 2026-10-08)
     "failed_writes", "retry_failed_writes", "clear_failed_writes",  # bg-write hardening (#622)
     "recall_since", "recall_between",  # date-filtered queries
     "config_get", "config_set", "config_delete", "config_list", "config_set_boot_load", "config_set_priority", "config_fire",  # config

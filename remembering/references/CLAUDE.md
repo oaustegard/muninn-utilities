@@ -461,6 +461,7 @@ if github['available']:
 - `memory_histogram()` - distribution by type, priority, age
 - `prune_by_age()` - delete old memories with priority filters
 - `prune_by_priority()` - delete low-priority memories
+- Both are two-step: `dry_run=False` requires `expect_ids=` set to the `ids` from the dry run (raises `ValueError` otherwise; deletes nothing on mismatch)
 
 ## What's New in v3.7.0
 

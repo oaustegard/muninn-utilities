@@ -359,15 +359,23 @@ hist = memory_histogram()
 print(f"Total: {hist['total']}")
 print(f"By type: {hist['by_type']}")
 
-# Preview what would be deleted (dry run)
-result = prune_by_age(older_than_days=90, priority_floor=0, dry_run=True)
+# Step 1: preview what would be deleted (dry run) and spot-check the ids
+preview = prune_by_age(older_than_days=90, priority_floor=0, dry_run=True)
+print(preview['count'], preview['ids'][:10])
 
-# Actually delete old low-priority memories
-result = prune_by_age(older_than_days=90, priority_floor=0, dry_run=False)
+# Step 2: delete, passing the reviewed ids back as expect_ids.
+# The delete runs only if the live candidate set matches them exactly;
+# otherwise it raises ValueError and deletes nothing.
+result = prune_by_age(older_than_days=90, priority_floor=0, dry_run=False,
+                      expect_ids=preview['ids'])
 
-# Delete all background-priority memories
-result = prune_by_priority(max_priority=-1, dry_run=False)
+# Background-priority memories: same two steps
+preview = prune_by_priority(max_priority=-1, dry_run=True)
+result = prune_by_priority(max_priority=-1, dry_run=False,
+                           expect_ids=preview['ids'])
 ```
+
+`dry_run=False` without `expect_ids` raises `ValueError`. Both prune functions use this two-step pattern.
 
 ## Export/Import for Portability
 

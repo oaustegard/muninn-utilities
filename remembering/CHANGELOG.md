@@ -2,6 +2,35 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.20.0] - 2026-10-08
+
+Fixes for failures a sweep of 204 archived CCotw sessions found recurring
+(137 verified episodes; hub `docs/failure-modes.md`).
+
+### Added
+
+- `get` and its alias `memory_get` are exported from `scripts`. `get()` existed
+  in `memory.py` but was never exported, so sessions guessed `recall(id=)`,
+  `sql_query` and `memory_get`, 3-12 turns each time.
+- `recall(id=...)` and `recall(ids=[...])` look memories up by id through
+  `get()`, in the order given, skipping ids that resolve to nothing. All other
+  filters are ignored on that path.
+- `count(tags=, tags_all=, type=, since=, until=)`: an exact `COUNT(*)` over
+  active memories. `since`/`until` filter on `t`, the column `recall(since=)`
+  uses, so the two windows agree.
+- `MemoryResultList.limit` and `.capped`. A recall that returned exactly its
+  `n` says `CAPPED` in its repr. Two sessions reported `recall(n=500)` coming
+  back with 500 as "500 total" in a store-health line.
+
+### Changed
+
+- `prune_by_age` and `prune_by_priority` with `dry_run=False` require
+  `expect_ids`, the `ids` from a reviewed dry run, and delete only when the
+  live candidate set matches it. They raise and delete nothing otherwise. Five
+  sessions ran a live prune after the spot-check meant to verify it had
+  errored. `scripts/tasks/sleep.md` and the reference docs use the two-step
+  form.
+
 ## [5.19.0] - 2026-09-19
 
 ### Added

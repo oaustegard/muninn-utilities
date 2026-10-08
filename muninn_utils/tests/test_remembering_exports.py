@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-PUBLIC = ["remember", "recall", "supersede", "forget", "config_get", "config_set", "_exec"]
+PUBLIC = ["remember", "recall", "supersede", "forget", "config_get", "config_set", "_exec", "get", "memory_get"]
 
 
 def _run(snippet: str) -> str:

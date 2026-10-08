@@ -538,9 +538,16 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
            tags_all: list = None, tags_any: list = None,
            episodic: bool = False,
            exploration: bool = False,
+           id: str | None = None, ids: list | None = None,
            # Deprecated parameters (kept for backward compat)
            use_cache: bool = True) -> MemoryResultList:
     """Query memories with flexible filters.
+
+    date: 2026-10-08 — added id= / ids= by-id lookup. Sessions kept calling
+    recall(id=...) and recall(ids=[...]) and then guessing at sql_query or
+    memory_get, 3-12 turns per occurrence, because recall() had no by-id form.
+    The lookup now routes through get(), so the single search entry point
+    answers both shapes.
 
     v5.6.0: Added exploration mode for MIA-inspired diversity boost (#paper-MIA).
     v5.1.0: Added episodic relevance scoring (#296).
@@ -587,13 +594,44 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
             preventing heavily-accessed memories from monopolizing results.
             Mutually exclusive with episodic (exploration wins if both set).
         use_cache: Deprecated (v5.0.0). Ignored - all queries go to Turso.
+        id: A single memory id (full UUID or unique prefix). Routed to get().
+            Returns a one-item list, or an empty list if a full id is not active.
+        ids: A list of memory ids, returned in the order given. Ids that
+            resolve to None are skipped. Passing id or ids ignores every other
+            filter, including search. Passing both raises ValueError.
 
     Returns:
         MemoryResultList of MemoryResult objects (or list of dicts if raw=True).
+
+    Raises:
+        ValueError: If both id and ids are passed, or a partial id matches zero
+            or several memories (get() contract).
+        TypeError: If id is not a str, or ids is not a list of str.
     """
     # Issue #15: `limit=` used to be silently translated here. It's now handled
     # by the @accept_aliases decorator with a DeprecationWarning so the wrong
     # mental model surfaces at the call site instead of persisting forever.
+
+    # by-id lookup (date: 2026-10-08). Returns before any search filter runs,
+    # so search, tags, type and the rest are deliberately ignored here.
+    if id is not None or ids is not None:
+        if id is not None and ids is not None:
+            raise ValueError("Pass id= or ids=, not both. Use ids=[...] for several.")
+        if id is not None:
+            if not isinstance(id, str):
+                # __class__, not type(): recall() has a `type=` filter that shadows the builtin.
+                raise TypeError(f"recall(id=) takes a str, got {id.__class__.__name__}.")
+            wanted = [id]
+        else:
+            if isinstance(ids, str) or not all(isinstance(m, str) for m in ids):
+                raise TypeError("recall(ids=) takes a list of str.")
+            wanted = list(ids)
+        found = []
+        for memory_id in wanted:
+            row = get(memory_id, raw=raw)
+            if row is not None:
+                found.append(row)
+        return found if raw else MemoryResultList(found)
 
     # Accept query= as alias for search= (Task.recall and many callers use 'query';
     # the underlying FTS5 search uses 'search'. Both names are first-class.)
@@ -635,7 +673,8 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
 
     if isinstance(search, int):
         results = _query(limit=search)
-        return results if raw else wrap_results(results)
+        # date: 2026-10-08. The int form is its own limit: _query(limit=search).
+        return results if raw else wrap_results(results, limit=search)
 
     # v5.0.0: Primary search path is Turso FTS5 with retry + LIKE fallback
     if search and not strict:
@@ -827,7 +866,8 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
             if r.get('priority', 0) < 2:
                 strengthen(r['id'], boost=1)
 
-    return results if raw else wrap_results(results)
+    # date: 2026-10-08. limit=n lets the result say CAPPED when it hit n (see MemoryResultList).
+    return results if raw else wrap_results(results, limit=n)
 
 
 def _update_access_tracking(memory_ids: list):
@@ -1042,7 +1082,8 @@ def recall_since(after: str, *, search: str = None, query: str = None, n: int = 
     if results:
         _update_access_tracking([m["id"] for m in results])
 
-    return results if raw else wrap_results(results)
+    # date: 2026-10-08. limit=n so a full page reports CAPPED (see MemoryResultList).
+    return results if raw else wrap_results(results, limit=n)
 
 
 # @lat: [[memory#Temporal Queries]]
@@ -1123,7 +1164,77 @@ def recall_between(after: str, before: str, *, search: str = None, query: str = 
     if results:
         _update_access_tracking([m["id"] for m in results])
 
-    return results if raw else wrap_results(results)
+    # date: 2026-10-08. limit=n so a full page reports CAPPED (see MemoryResultList).
+    return results if raw else wrap_results(results, limit=n)
+
+
+def count(*, tags: list | None = None, tags_all: list | None = None, type: str | None = None,
+          since: str | None = None, until: str | None = None) -> int | None:
+    """Exact number of active memories matching a filter.
+
+    date: 2026-10-08. recall() returns at most n rows, so a result of length n
+    is a lower bound, and nothing in an ordinary result says so. count() is the
+    answer to "how many": one COUNT(*) over the same active predicate recall()
+    uses (deleted_at IS NULL AND is_superseded = 0), independent of any n.
+
+    Tag matching follows prune_by_age and recall: a tag matches when the JSON
+    tag list contains it as a quoted string (tags LIKE '%"tag"%').
+
+    Args:
+        tags: Any-of tag filter. Memory matches if it has at least one of these.
+        tags_all: All-of tag filter. Memory must have every one of these.
+            Combined with ``tags`` when both are given (both must hold).
+        type: Memory type filter.
+        since: Inclusive lower bound on t, the same column recall(since=)
+            filters on, so a count() window matches a recall() window (UTC).
+        until: Inclusive upper bound on t (UTC).
+
+    Returns:
+        Exact int count, or None if the query failed. A failed count returns
+        None, never 0: an error must not read as an empty store.
+
+    Example:
+        >>> count()                       # total active memories
+        >>> count(tags=['session-log'])   # any-of
+        >>> count(tags_all=['a', 'b'])    # must carry both
+    """
+    conditions = [
+        "deleted_at IS NULL",
+        "is_superseded = 0",
+    ]
+    params = []
+
+    if tags:
+        tag_conds = []
+        for t in tags:
+            tag_conds.append("tags LIKE ? ESCAPE '\\'")
+            params.append(f'%"{_escape_like(t)}"%')
+        conditions.append(f"({' OR '.join(tag_conds)})")
+
+    if tags_all:
+        for t in tags_all:
+            conditions.append("tags LIKE ? ESCAPE '\\'")
+            params.append(f'%"{_escape_like(t)}"%')
+
+    if type:
+        conditions.append("type = ?")
+        params.append(type)
+
+    if since is not None:
+        conditions.append("t >= ?")
+        params.append(normalize_to_utc(since))
+
+    if until is not None:
+        conditions.append("t <= ?")
+        params.append(normalize_to_utc(until))
+
+    where = " AND ".join(conditions)
+    try:
+        rows = _exec(f"SELECT COUNT(*) AS n FROM memories WHERE {where}", params)
+        return int(rows[0]['n'])
+    except Exception:  # noqa: BLE001 - a failed count degrades to None, never to 0
+        # Degrade to None, not 0: a failed count must not read as an empty store.
+        return None
 
 
 # @lat: [[memory#Core Operations]]
@@ -1440,10 +1551,62 @@ def memory_histogram() -> dict:
     }
 
 
+# Prune guard (date: 2026-10-08). A dry run reviews a candidate set; a live
+# prune must delete that same set, not whatever the criteria match at delete
+# time. Five sessions ran dry_run=False after a spot-check that never happened,
+# and the deletes went ahead unverified. A live prune now requires expect_ids,
+# the ids from the reviewed dry run, and deletes only when the live candidate
+# set equals it. Otherwise it raises before deleting anything.
+_PRUNE_PREVIEW_LIMIT = 10
+
+
+def _preview_ids(ids: list) -> str:
+    shown = ", ".join(ids[:_PRUNE_PREVIEW_LIMIT])
+    if len(ids) > _PRUNE_PREVIEW_LIMIT:
+        shown += f", ... (+{len(ids) - _PRUNE_PREVIEW_LIMIT} more)"
+    return shown or "none"
+
+
+def _require_expect_ids(fn_name: str, expect_ids) -> None:
+    """Refuse a live prune that carries no reviewed id set. Runs before any query."""
+    if expect_ids is None:
+        raise ValueError(
+            f"{fn_name}(dry_run=False) requires expect_ids. Run "
+            f"{fn_name}(..., dry_run=True) first, review the result, then call "
+            "again with the same criteria, dry_run=False, and "
+            "expect_ids=result['ids'] from that dry run."
+        )
+    if isinstance(expect_ids, (str, bytes)):
+        raise TypeError(
+            f"{fn_name}: expect_ids must be an iterable of memory ids, not a "
+            "single string. Pass [id] for one id."
+        )
+
+
+def _verify_prune_candidates(fn_name: str, candidate_ids: list, expect_ids) -> None:
+    """Raise unless the live candidate set equals the reviewed set (order ignored)."""
+    expected = {str(i) for i in expect_ids}
+    current = {str(i) for i in candidate_ids}
+    if expected == current:
+        return
+    only_expected = sorted(expected - current)
+    only_current = sorted(current - expected)
+    raise ValueError(
+        f"{fn_name}: candidate set no longer matches expect_ids; nothing deleted. "
+        f"In expect_ids only ({len(only_expected)}): {_preview_ids(only_expected)}. "
+        f"Matching now only ({len(only_current)}): {_preview_ids(only_current)}. "
+        "Re-run with dry_run=True, review, and pass the fresh result['ids'] as expect_ids."
+    )
+
+
 @accept_aliases
 def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = True,
-                 tags: list = None) -> dict:
+                 tags: list = None, *, expect_ids=None) -> dict:
     """Soft-delete old memories with priority at or below a threshold.
+
+    Two-step by design: a live prune (dry_run=False) must be given the ids
+    from the dry run you reviewed, and it deletes only if the live candidate
+    set matches them exactly. See the prune guard note above for why.
 
     Args:
         older_than_days: Delete memories older than this many days
@@ -1454,18 +1617,33 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
             (e.g. ['session-log']) without touching unrelated low-priority memories.
             Memories that have been strengthen()ed past the floor are still excluded
             by priority, so genuinely valuable session logs survive.
+        expect_ids: Required when dry_run=False. The 'ids' list from the dry run
+            with the same criteria. Order is ignored. If the live candidate set
+            differs, raises ValueError listing the mismatched ids and deletes
+            nothing.
 
     Returns:
         Dict with count and list of memory IDs that were (or would be) deleted
 
+    Raises:
+        ValueError: dry_run=False with expect_ids=None, or the candidate set
+            no longer matches expect_ids. Nothing is deleted in either case.
+
     Example:
-        >>> # See what would be deleted
-        >>> result = prune_by_age(older_than_days=90, priority_floor=0)
-        >>> print(f"Would delete {result['count']} memories")
-        >>> # Prune only session-log scaffolding past 60 days (#56)
+        >>> # 1. Dry run: see what would be deleted and spot-check the ids
+        >>> preview = prune_by_age(older_than_days=90, priority_floor=0)
+        >>> print(f"Would delete {preview['count']} memories: {preview['ids']}")
+        >>> # 2. Apply, passing the reviewed ids back
+        >>> prune_by_age(older_than_days=90, priority_floor=0, dry_run=False,
+        ...              expect_ids=preview['ids'])
+        >>> # Prune only session-log scaffolding past 60 days (#56), same two steps
+        >>> preview = prune_by_age(older_than_days=60, priority_floor=0,
+        ...                        tags=['session-log'])
         >>> prune_by_age(older_than_days=60, priority_floor=0, tags=['session-log'],
-        ...              dry_run=False)
+        ...              dry_run=False, expect_ids=preview['ids'])
     """
+    if not dry_run:
+        _require_expect_ids("prune_by_age", expect_ids)
     cutoff = datetime.now(UTC) - __import__('datetime').timedelta(days=older_than_days)
     cutoff_iso = cutoff.isoformat().replace("+00:00", "Z")
 
@@ -1490,8 +1668,8 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
 
     ids = [m['id'] for m in results]
 
-    if not dry_run and ids:
-        # Actually delete
+    if not dry_run:
+        _verify_prune_candidates("prune_by_age", ids, expect_ids)
         for memory_id in ids:
             forget(memory_id)
 
@@ -1507,20 +1685,39 @@ def prune_by_age(older_than_days: int, priority_floor: int = 0, dry_run: bool = 
 
 
 @accept_aliases
-def prune_by_priority(max_priority: int = -1, dry_run: bool = True) -> dict:
+def prune_by_priority(max_priority: int = -1, dry_run: bool = True, *,
+                      expect_ids=None) -> dict:
     """Soft-delete memories with priority at or below a threshold.
+
+    Two-step by design, like prune_by_age: dry_run=False requires expect_ids
+    from the reviewed dry run and deletes only if the live candidate set
+    matches it exactly.
 
     Args:
         max_priority: Delete memories with priority <= this (default -1, background only)
         dry_run: If True (default), return what would be deleted without deleting
+        expect_ids: Required when dry_run=False. The 'ids' list from the dry run
+            with the same max_priority. Order is ignored. A mismatch raises
+            ValueError and deletes nothing.
 
     Returns:
         Dict with count and list of memory IDs that were (or would be) deleted
 
+    Raises:
+        ValueError: dry_run=False with expect_ids=None, or the candidate set
+            no longer matches expect_ids. Nothing is deleted in either case.
+
     Example:
-        >>> # Delete all background priority memories
-        >>> result = prune_by_priority(max_priority=-1, dry_run=False)
+        >>> # 1. Dry run: review the background-priority ids
+        >>> preview = prune_by_priority(max_priority=-1)
+        >>> print(f"Would delete {preview['count']} memories")
+        >>> # 2. Apply, passing the reviewed ids back
+        >>> prune_by_priority(max_priority=-1, dry_run=False,
+        ...                   expect_ids=preview['ids'])
     """
+    if not dry_run:
+        _require_expect_ids("prune_by_priority", expect_ids)
+
     # Find candidates
     results = _exec("""
         SELECT id, summary, type, priority
@@ -1532,8 +1729,8 @@ def prune_by_priority(max_priority: int = -1, dry_run: bool = True) -> dict:
 
     ids = [m['id'] for m in results]
 
-    if not dry_run and ids:
-        # Actually delete
+    if not dry_run:
+        _verify_prune_candidates("prune_by_priority", ids, expect_ids)
         for memory_id in ids:
             forget(memory_id)
 

@@ -26,7 +26,7 @@ Core store: write, read, revise, and maintain memories over Turso.
 - `get_alternatives(memory_id)` — Read the alternatives recorded on a decision memory.
 - `consolidate(*, tags=None, min_cluster=3, dry_run=True, session_id=None)` — Fold clusters of related memories into summary memories. Defaults to a dry run.
 - `curate(*, dry_run=True, consolidation_threshold=3, stale_days=90, low_priority_cap=-1, max_actions=20)` — Detect duplicates, stale, and consolidation candidates in one pass. Defaults to a dry run.
-- `prune_by_age(...)` / `prune_by_priority(...)` — Drop memories past an age or below a priority floor.
+- `prune_by_age(...)` / `prune_by_priority(...)` — Drop memories past an age or below a priority floor. Two-step: a dry run returns `ids`; `dry_run=False` requires `expect_ids=` with those ids and deletes nothing if the live candidate set differs (raises `ValueError`).
 
 ### config
 

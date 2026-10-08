@@ -258,6 +258,122 @@ def test_prune_by_age_multiple_tags_requires_all():
     print("PASS: prune_by_age ANDs multiple tag clauses")
 
 
+# ── prune guard (date: 2026-10-08) — live prune requires reviewed expect_ids ──
+
+def _expect_raises(exc_type, fn, *args, **kwargs):
+    """Call fn and return the exception it raised; fail if none or wrong type."""
+    try:
+        fn(*args, **kwargs)
+    except exc_type as e:
+        return e
+    raise AssertionError(f"{fn.__name__} did not raise {exc_type.__name__}")
+
+
+def _call_age(**kw):
+    from scripts.memory import prune_by_age
+    return prune_by_age(older_than_days=60, priority_floor=0, **kw)
+
+
+def _call_priority(**kw):
+    from scripts.memory import prune_by_priority
+    return prune_by_priority(max_priority=-1, **kw)
+
+
+_PRUNE_CASES = [("prune_by_age", _call_age), ("prune_by_priority", _call_priority)]
+
+
+def test_prune_live_without_expect_ids_raises_and_deletes_nothing():
+    """dry_run=False with no expect_ids must refuse before any query or delete."""
+    for name, call in _PRUNE_CASES:
+        with patch("scripts.memory._exec", return_value=[{"id": "a"}]) as mock_exec, \
+             patch("scripts.memory.forget") as mock_forget:
+            err = _expect_raises(ValueError, call, dry_run=False)
+        assert "dry_run=True" in str(err) and "expect_ids" in str(err), str(err)
+        assert mock_exec.call_count == 0, f"{name}: queried before refusing"
+        assert mock_forget.call_count == 0, f"{name}: deleted without expect_ids"
+
+    print("PASS: live prune without expect_ids raises and deletes nothing")
+
+
+def test_prune_live_mismatched_expect_ids_raises_and_deletes_nothing():
+    """A candidate set that differs from expect_ids must raise, naming both sides."""
+    for name, call in _PRUNE_CASES:
+        rows = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+        with patch("scripts.memory._exec", return_value=rows), \
+             patch("scripts.memory.forget") as mock_forget:
+            err = _expect_raises(ValueError, call, dry_run=False,
+                                 expect_ids=["a", "b", "x"])
+        msg = str(err)
+        assert "x" in msg and "c" in msg, f"{name}: mismatch not named: {msg}"
+        assert mock_forget.call_count == 0, f"{name}: deleted despite mismatch"
+
+    print("PASS: mismatched expect_ids raises and deletes nothing")
+
+
+def test_prune_live_empty_candidates_with_expect_ids_raises():
+    """Reviewed ids that no longer match anything must not pass as a no-op."""
+    with patch("scripts.memory._exec", return_value=[]), \
+         patch("scripts.memory.forget") as mock_forget:
+        _expect_raises(ValueError, _PRUNE_CASES[0][1], dry_run=False,
+                       expect_ids=["a"])
+    assert mock_forget.call_count == 0
+
+    print("PASS: empty candidate set against non-empty expect_ids raises")
+
+
+def test_prune_mismatch_message_truncates_long_lists():
+    """Long mismatch lists are previewed, with a count of what was cut."""
+    rows = [{"id": f"cur-{i:02d}"} for i in range(15)]
+    with patch("scripts.memory._exec", return_value=rows), \
+         patch("scripts.memory.forget") as mock_forget:
+        err = _expect_raises(ValueError, _PRUNE_CASES[1][1], dry_run=False,
+                             expect_ids=["gone-1"])
+    msg = str(err)
+    assert "(+5 more)" in msg, f"expected truncation marker, got: {msg}"
+    assert "(15)" in msg and "(1)" in msg, f"expected counts, got: {msg}"
+    assert mock_forget.call_count == 0
+
+    print("PASS: mismatch message truncates long id lists")
+
+
+def test_prune_live_matching_expect_ids_deletes_exactly_those():
+    """When the live set equals expect_ids (order ignored), delete exactly those ids."""
+    from scripts.memory import prune_by_age, prune_by_priority
+
+    rows = [{"id": "a"}, {"id": "b"}]
+    with patch("scripts.memory._exec", return_value=rows), \
+         patch("scripts.memory.forget") as mock_forget:
+        result = prune_by_age(older_than_days=60, priority_floor=0,
+                              dry_run=False, expect_ids=["b", "a"])
+    deleted = sorted(c.args[0] for c in mock_forget.call_args_list)
+    assert deleted == ["a", "b"], f"deleted {deleted}"
+    assert result["count"] == 2 and result["dry_run"] is False
+
+    with patch("scripts.memory._exec", return_value=rows), \
+         patch("scripts.memory.forget") as mock_forget:
+        prune_by_priority(max_priority=-1, dry_run=False, expect_ids=("a", "b"))
+    deleted = sorted(c.args[0] for c in mock_forget.call_args_list)
+    assert deleted == ["a", "b"], f"deleted {deleted}"
+
+    print("PASS: matching expect_ids deletes exactly the reviewed ids")
+
+
+def test_prune_dry_run_unchanged_by_guard():
+    """dry_run=True needs no expect_ids, returns ids, and never deletes."""
+    from scripts.memory import prune_by_age, prune_by_priority
+
+    rows = [{"id": "a"}, {"id": "b"}]
+    with patch("scripts.memory._exec", return_value=rows), \
+         patch("scripts.memory.forget") as mock_forget:
+        r1 = prune_by_age(older_than_days=60, priority_floor=0, dry_run=True)
+        r2 = prune_by_priority(max_priority=-1)
+    assert r1["ids"] == ["a", "b"] and r2["ids"] == ["a", "b"]
+    assert r1["count"] == 2 and r1["dry_run"] is True
+    assert mock_forget.call_count == 0
+
+    print("PASS: dry_run=True is unchanged by the guard")
+
+
 # ── #55 — zeitgeist skip path no longer persists telemetry ──
 
 def test_zeitgeist_task_does_not_remember_skips():
@@ -306,6 +422,13 @@ if __name__ == "__main__":
         test_prune_by_age_adds_tag_clauses_to_where,
         test_prune_by_age_without_tags_unchanged,
         test_prune_by_age_multiple_tags_requires_all,
+        # prune guard — live prune requires reviewed expect_ids
+        test_prune_live_without_expect_ids_raises_and_deletes_nothing,
+        test_prune_live_mismatched_expect_ids_raises_and_deletes_nothing,
+        test_prune_live_empty_candidates_with_expect_ids_raises,
+        test_prune_mismatch_message_truncates_long_lists,
+        test_prune_live_matching_expect_ids_deletes_exactly_those,
+        test_prune_dry_run_unchanged_by_guard,
         # #55 — zeitgeist skip telemetry
         test_zeitgeist_task_does_not_remember_skips,
     ]
