@@ -417,6 +417,11 @@ assess_staleness("upload.wikimedia.org is blocked by the egress allowlist", "202
 # note: "unverified since 2026-05-01: availability; probe before trusting a blocked/unavailable claim"
 ```
 
+The verification date is the latest of the memory's creation, any
+`[AUDIT YYYY-MM-DD` header in its text, and any `verified-YYYY-MM-DD` or
+`audited-YYYY-MM-DD` tag. `mark_verified(ids, date=None)` sets the tag for
+memories an audit found still true (hub `scripts/memory_audit.py`).
+
 A note means "check before acting", not "wrong": the patterns flag about one
 memory in ten. `live_refs` is off by default so batch and scripted recalls
 stay offline; a lookup that fails leaves the ref out rather than calling it open.

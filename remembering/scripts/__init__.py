@@ -44,7 +44,7 @@ from .memory import (
     get_chain,  # v4.3.0: reference chain traversal (#283)
     recall_batch, remember_batch,  # v4.5.0: batch APIs (#299)
     curate, decision_trace,  # v5.1.0: autonomous curation (#295) and decision traces (#297)
-    annotate_live_refs,  # 2026-10-09: live issue/PR states for recalled memories
+    annotate_live_refs, mark_verified,  # 2026-10-09: live issue/PR states; audit verification tags
 )
 from .volatility import assess as assess_staleness, resolve_refs  # 2026-10-09 memory audit
 
@@ -111,7 +111,7 @@ j = journal
 memory_get = get
 
 __all__ = [
-    'annotate_live_refs', 'assess_staleness', 'resolve_refs',
+    'annotate_live_refs', 'mark_verified', 'assess_staleness', 'resolve_refs',
     "remember", "recall", "forget", "supersede", "remember_bg", "flush",  # memories
     "get", "memory_get",  # by-id fetch (date: 2026-10-08)
     "count",  # exact count; a recall at its limit is a lower bound (date: 2026-10-08)

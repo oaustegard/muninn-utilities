@@ -15,6 +15,7 @@ v5.0.0: Removed local cache dependency. All queries go through Turso FTS5.
 """
 
 import json
+import re
 import uuid
 import threading
 import time
@@ -1524,6 +1525,36 @@ def reprioritize(memory_id: str, priority: int) -> None:
         SET priority = ?
         WHERE id = ?
     """, [priority, resolved_id])
+
+
+def mark_verified(memory_ids: list, date: str | None = None) -> int:
+    """Tag memories as checked against live state on `date` (default today, UTC).
+
+    Replaces any earlier `verified-YYYY-MM-DD` tag with `verified-<date>`. The
+    staleness check (volatility.py, muninn-mcp volatility.ts) reads the newest
+    such tag as the memory's verification date, so a memory a periodic audit
+    found still true stops showing "unverified since <creation>" and leaves the
+    audit's queue. Tags only, in place: the summary and the supersede chain are
+    untouched. Returns the number of rows updated.
+    """
+    date = date or datetime.now(UTC).strftime("%Y-%m-%d")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise ValueError(f"date must be YYYY-MM-DD, got {date!r}")
+    updated = 0
+    for memory_id in memory_ids:
+        resolved_id = _resolve_memory_id(memory_id)
+        rows = _exec("SELECT tags FROM memories WHERE id = ? AND deleted_at IS NULL", [resolved_id])
+        if not rows:
+            continue
+        raw = rows[0].get("tags")
+        try:
+            tags = json.loads(raw) if isinstance(raw, str) else list(raw or [])
+        except json.JSONDecodeError:
+            tags = []
+        tags = [t for t in tags if not re.fullmatch(r"verified-\d{4}-\d{2}-\d{2}", str(t))] + [f"verified-{date}"]
+        _exec("UPDATE memories SET tags = ? WHERE id = ? AND deleted_at IS NULL", [json.dumps(tags), resolved_id])
+        updated += 1
+    return updated
 
 
 # --- Retrieval observability and retention helpers (v3.2.0) ---

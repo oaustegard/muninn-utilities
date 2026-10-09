@@ -27,6 +27,11 @@ memory said when it was last true.
   ~4 s) adds `now: o/r#N MERGED` to results whose issues or PRs have closed.
   178 of the audit's 655 corrections had that shape. A failed lookup adds
   nothing. REST, because the Claude Code on the Web proxy refuses GraphQL.
+- `mark_verified(ids, date=None)`: replaces any `verified-YYYY-MM-DD` tag
+  with `verified-<date>`, in place (tags only). The staleness check reads the
+  newest `verified-`/`audited-` tag as the verification date, so a memory a
+  periodic audit found still true stops showing its creation date as "last
+  verified" and leaves the audit queue.
 - `tests/volatility_fixtures.json`, the cases muninn-mcp's
   `src/volatility.ts` runs too.
 

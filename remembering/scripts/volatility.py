@@ -79,6 +79,7 @@ KIND_LABEL = {
 }
 
 _AUDIT_HEADER = re.compile(r"\[AUDIT (\d{4}-\d{2}-\d{2})")
+_VERIFIED_TAG = re.compile(r"(?:verified|audited)-(\d{4}-\d{2}-\d{2})")
 _REF_PATTERNS = (
     re.compile(r"\b(" + _REPO + r")/(" + _REPO + r")#(\d+)"),
     re.compile(r"\b(?:PR|pull request|issue)\s*#(\d+)\s+(?:in|on|of|at)\s+(?:the\s+)?(?:(" + _REPO + r")/)?(" + _REPO + r")",
@@ -110,7 +111,7 @@ def _parse_time(value) -> datetime | None:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def strip_audit_block(text: str) -> str:
@@ -155,11 +156,13 @@ def refs(text: str) -> list[str]:
     return [r for _, r in sorted(found) if not (r.lower() in seen or seen.add(r.lower()))]
 
 
-def verified_at(text: str, created_at) -> datetime | None:
-    """The later of the memory's creation and the newest audit header in its text."""
+def verified_at(text: str, created_at, tags=None) -> datetime | None:
+    """The latest of the memory's creation, the audit headers in its text, and its
+    `verified-YYYY-MM-DD` / `audited-YYYY-MM-DD` tags (memory.mark_verified)."""
     created = _parse_time(created_at)
-    audits = [_parse_time(d + "T00:00:00Z") for d in _AUDIT_HEADER.findall(text or "")]
-    dates = [d for d in [created, *audits] if d is not None]
+    stamps = _AUDIT_HEADER.findall(text or "")
+    stamps += [m.group(1) for t in (tags or []) if (m := _VERIFIED_TAG.fullmatch(str(t)))]
+    dates = [d for d in [created, *(_parse_time(s + "T00:00:00Z") for s in stamps)] if d is not None]
     return max(dates) if dates else None
 
 
@@ -178,7 +181,7 @@ def assess(text: str, created_at, now: datetime | None = None, tags=None) -> dic
     if not found and not named:
         return None
     now = now or datetime.now(timezone.utc)
-    seen = verified_at(text, created_at)
+    seen = verified_at(text, created_at, tags)
     if seen is None:
         stale = list(found)
     else:

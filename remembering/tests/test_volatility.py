@@ -84,3 +84,29 @@ def test_ref_note_names_only_changed_refs():
     states = {"o/a#1": "OPEN", "o/a#2": "CLOSED", "o/a#3": None, "o/a#4": "MERGED"}
     assert v.ref_note(states, ["o/a#1", "o/a#2", "o/a#3", "o/a#4"]) == "now: o/a#2 CLOSED, o/a#4 MERGED"
     assert v.ref_note({"o/a#1": "OPEN"}, ["o/a#1"]) is None
+
+
+def test_mark_verified_replaces_older_stamp():
+    from unittest.mock import patch
+
+    from scripts import memory
+
+    calls = []
+
+    def fake_exec(sql, params=None):
+        calls.append((sql, params))
+        if sql.startswith("SELECT"):
+            return [{"tags": json.dumps(["network", "verified-2026-01-01"])}]
+        return []
+
+    with patch.object(memory, "_exec", fake_exec), patch.object(memory, "_resolve_memory_id", lambda i: i):
+        assert memory.mark_verified(["abc"], "2026-10-09") == 1
+    update = next(c for c in calls if c[0].startswith("UPDATE"))
+    assert json.loads(update[1][0]) == ["network", "verified-2026-10-09"]
+
+
+def test_mark_verified_rejects_bad_date():
+    from scripts import memory
+
+    with pytest.raises(ValueError):
+        memory.mark_verified(["abc"], "10/09/2026")
