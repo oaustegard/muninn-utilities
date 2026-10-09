@@ -43,8 +43,10 @@ from .memory import (
     get_alternatives, consolidate,  # v4.2.0: decision alternatives (#254) and consolidation (#253)
     get_chain,  # v4.3.0: reference chain traversal (#283)
     recall_batch, remember_batch,  # v4.5.0: batch APIs (#299)
-    curate, decision_trace  # v5.1.0: autonomous curation (#295) and decision traces (#297)
+    curate, decision_trace,  # v5.1.0: autonomous curation (#295) and decision traces (#297)
+    annotate_live_refs,  # 2026-10-09: live issue/PR states for recalled memories
 )
+from .volatility import assess as assess_staleness, resolve_refs  # 2026-10-09 memory audit
 
 # Supersession lineage and flag repair (integrity.py)
 from .integrity import successor, repair as repair_lineage
@@ -109,6 +111,7 @@ j = journal
 memory_get = get
 
 __all__ = [
+    'annotate_live_refs', 'assess_staleness', 'resolve_refs',
     "remember", "recall", "forget", "supersede", "remember_bg", "flush",  # memories
     "get", "memory_get",  # by-id fetch (date: 2026-10-08)
     "count",  # exact count; a recall at its limit is a lower bound (date: 2026-10-08)

@@ -2,6 +2,40 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.21.0] - 2026-10-09
+
+From the 2026-10-09 memory audit (oaustegard/experiments memory-audit/RESULTS.md):
+29% of 2,273 checked present-tense claims no longer held, and nothing in a
+memory said when it was last true.
+
+### Added
+
+- `scripts/volatility.py`. `assess(text, created_at, now=None, tags=None)`
+  names the volatile claims a memory makes (open item, version, availability,
+  environment state, path), when it was last verified (its creation, or the
+  newest `[AUDIT YYYY-MM-DD` header in it), and which claims are past their
+  horizon (7 days for open items, 30 for versions, availability and
+  environment state, 90 for paths). `refs(text)` extracts the issues and PRs
+  it names, including owner-less shorthand (`claude-workspace#222`,
+  `remax_kb PR #35`) and bare `#N` when the text names exactly one repo.
+- `MemoryResult.staleness`, computed when a row is wrapped. `str(result)`
+  appends a `⚠` line when a claim is past its horizon; an availability
+  claim's note adds "probe before trusting a blocked/unavailable claim".
+  Memories tagged as news digests or session logs are skipped.
+- `recall(..., live_refs=True)` and `annotate_live_refs(results)`: one
+  parallel round of GitHub REST lookups (`/issues/{n}`, capped at 25 refs and
+  ~4 s) adds `now: o/r#N MERGED` to results whose issues or PRs have closed.
+  178 of the audit's 655 corrections had that shape. A failed lookup adds
+  nothing. REST, because the Claude Code on the Web proxy refuses GraphQL.
+- `tests/volatility_fixtures.json`, the cases muninn-mcp's
+  `src/volatility.ts` runs too.
+
+Measured against the audit's 544 corrected memories: the claim patterns
+separate stale memories from the rest weakly (they flag 19% of corrected
+memories and 10.5% of the others), so the age note is a prompt to check, not
+a verdict. Issue/PR extraction finds a reference in 114 of the 191 corrected
+memories whose correction named one.
+
 ## [5.20.0] - 2026-10-08
 
 Fixes for failures a sweep of 204 archived CCotw sessions found recurring

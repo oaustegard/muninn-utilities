@@ -539,6 +539,7 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
            episodic: bool = False,
            exploration: bool = False,
            id: str | None = None, ids: list | None = None,
+           live_refs: bool = False,
            # Deprecated parameters (kept for backward compat)
            use_cache: bool = True) -> MemoryResultList:
     """Query memories with flexible filters.
@@ -596,6 +597,10 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
         use_cache: Deprecated (v5.0.0). Ignored - all queries go to Turso.
         id: A single memory id (full UUID or unique prefix). Routed to get().
             Returns a one-item list, or an empty list if a full id is not active.
+        live_refs: If True, look up the GitHub issues and PRs the results name
+            (one parallel REST round, ~4 s cap) and add "now: o/r#N CLOSED" to
+            each result's staleness note. A failed lookup adds nothing. Off by
+            default so scripted and batch recalls stay offline.
         ids: A list of memory ids, returned in the order given. Ids that
             resolve to None are skipped. Passing id or ids ignores every other
             filter, including search. Passing both raises ValueError.
@@ -867,7 +872,35 @@ def recall(search: str = None, *, query: str = None, n: int = 10, tags: list = N
                 strengthen(r['id'], boost=1)
 
     # date: 2026-10-08. limit=n lets the result say CAPPED when it hit n (see MemoryResultList).
-    return results if raw else wrap_results(results, limit=n)
+    if raw:
+        return results
+    wrapped = wrap_results(results, limit=n)
+    return annotate_live_refs(wrapped) if live_refs else wrapped
+
+
+def annotate_live_refs(results, *, timeout: float = 4.0):
+    """Add live issue/PR states to each result's staleness (2026-10-09 memory audit).
+
+    178 of the audit's 655 corrections were "issue/PR #N is open" claims whose
+    item had since closed. One parallel round of REST lookups over every ref the
+    results name; a ref that cannot be resolved is left out, never shown as open.
+    """
+    from .volatility import ref_note, resolve_refs
+
+    wanted = []
+    for r in results:
+        st = r.get('staleness') if hasattr(r, 'get') else None
+        if isinstance(st, dict):
+            wanted.extend(st.get('refs') or [])
+    if not wanted:
+        return results
+    states = resolve_refs(wanted, timeout=timeout)
+    for r in results:
+        st = r.get('staleness') if hasattr(r, 'get') else None
+        if isinstance(st, dict) and st.get('refs'):
+            st['ref_states'] = {ref: states.get(ref) for ref in st['refs']}
+            st['ref_note'] = ref_note(states, st['refs'])
+    return results
 
 
 def _update_access_tracking(memory_ids: list):

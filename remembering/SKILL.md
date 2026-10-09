@@ -2,7 +2,7 @@
 name: remembering
 description: Cross-session memory operations against the Turso store — the advanced half; plain profile loading and simple recall/remember are already in project instructions. Use for "store this correction so future sessions have it", "what did we decide about X", "supersede or forget a memory that is now wrong", "search my long-term notes", "write a memory with tags and priority", "consolidate or prune the store", "save a checkpoint and resume it next session", or any question about a remember/recall/config/journal signature and its edge cases. Covers background writes, supersede chains, time-windowed and multi-tag queries, batch APIs, session scoping, retention and curation, episodic scoring, decision traces, and task discipline. Not for notes about the session currently in progress (use session-memory) and not for ranking documents or code by relevance (bm25).
 metadata:
-  version: 5.13.0
+  version: 5.21.0
 ---
 
 # Remembering - Advanced Operations

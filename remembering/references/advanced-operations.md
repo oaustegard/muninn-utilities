@@ -399,6 +399,28 @@ stats = muninn_import(data, merge=True)
 stats = muninn_import(data, merge=False)
 ```
 
+## Staleness and Live Refs (v5.21.0)
+
+Every `MemoryResult` carries `staleness`: None, or a dict with `kinds`,
+`refs`, `verified_at`, `stale_kinds` and `note`. `str(result)` appends the
+note as a `⚠` line. It is computed from the text and timestamp alone, at read
+time, so it covers memories written by any path.
+
+```python
+r = recall("claude-skills PR", n=5, live_refs=True)   # one REST round, ~4 s cap
+for m in r:
+    print(m)            # summary, then "⚠ now: oaustegard/claude-skills#778 MERGED"
+    m.staleness         # {'kinds': ['open_item'], 'refs': [...], 'ref_states': {...}, ...}
+
+from scripts import assess_staleness
+assess_staleness("upload.wikimedia.org is blocked by the egress allowlist", "2026-05-01T00:00:00Z")
+# note: "unverified since 2026-05-01: availability; probe before trusting a blocked/unavailable claim"
+```
+
+A note means "check before acting", not "wrong": the patterns flag about one
+memory in ten. `live_refs` is off by default so batch and scripted recalls
+stay offline; a lookup that fails leaves the ref out rather than calling it open.
+
 ## Type-Safe Results (v3.4.0)
 
 `recall()`, `recall_since()`, and `recall_between()` return `MemoryResult` objects that validate field access:

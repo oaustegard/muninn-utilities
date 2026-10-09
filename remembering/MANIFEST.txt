@@ -22,6 +22,7 @@ muninn_utils/gh_proxy.py
 muninn_utils/gh_status.py
 muninn_utils/github_rw.py
 muninn_utils/hypothetical_classifier.py
+muninn_utils/inbox_heartbeat.py
 muninn_utils/issue_close.py
 muninn_utils/log_extract.py
 muninn_utils/memory_tfidf.py
@@ -72,3 +73,4 @@ remembering/scripts/tasks/sleep.md
 remembering/scripts/tasks/zeitgeist.md
 remembering/scripts/turso.py
 remembering/scripts/utilities.py
+remembering/scripts/volatility.py

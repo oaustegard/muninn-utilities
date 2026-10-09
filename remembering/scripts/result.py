@@ -54,6 +54,9 @@ VALID_FIELDS: Set[str] = {
 
     # Computed temporal context (issue #19)
     'relative_age',
+
+    # Read-time staleness of volatile claims (volatility.py, 2026-10-09 memory audit)
+    'staleness',
 }
 
 # Common mistakes mapping - helps users fix errors
@@ -188,8 +191,11 @@ class MemoryResult:
         return f"MemoryResult(id={self._data.get('id', '?')[:8]}..., type={self._data.get('type')}, summary={summary!r})"
 
     def __str__(self) -> str:
-        """String representation showing key fields."""
-        return f"[{self._data.get('type', '?')}] {self._data.get('summary', '')}"
+        """String representation showing key fields, plus any staleness note."""
+        out = f"[{self._data.get('type', '?')}] {self._data.get('summary', '')}"
+        for line in staleness_lines(self._data.get('staleness')):
+            out += f"\n  ⚠ {line}"
+        return out
 
     def _error_message(self, field: str, error_type: str) -> str:
         """Generate helpful error message for invalid field access."""
@@ -384,12 +390,38 @@ def _normalize_memory(data: dict) -> dict:
     # v5.5.0: Convert valid_from from UTC to user's local timezone (#461)
     _convert_timestamp_to_local(data, 'valid_from')
 
+    # 2026-10-09 memory audit: say when a volatile claim was last verified, so a
+    # stale "issue #N is open" or "host X is blocked" does not read as current.
+    if 'staleness' not in data and data.get('summary'):
+        data['staleness'] = _assess_staleness(data)
+
     # Issue #19: surface human-readable duration so the prose-composition
     # workspace doesn't have to redo timestamp math (and confabulate when it doesn't).
     if 'relative_age' not in data and data.get('created_at'):
         data['relative_age'] = _format_relative_age(data['created_at'])
 
     return data
+
+
+def _assess_staleness(data: dict):
+    """volatility.assess() for one row, or None. Never raises: a classifier bug must not break recall."""
+    try:
+        import json
+
+        from .volatility import assess
+        tags = data.get('tags')
+        if isinstance(tags, str):
+            tags = json.loads(tags)
+        return assess(data['summary'], data.get('t') or data.get('created_at'), tags=tags or [])
+    except Exception:  # noqa: BLE001 - a classifier bug must not break recall
+        return None
+
+
+def staleness_lines(staleness) -> list:
+    """The note lines a reader sees for one memory: the age note, then the live ref states."""
+    if not isinstance(staleness, dict):
+        return []
+    return [line for line in (staleness.get('ref_note'), staleness.get('note')) if line]
 
 
 # Timezone for display conversion — single-user system, hardcoded per issue #461
