@@ -7,7 +7,7 @@ All notable changes to the `remembering` skill (Muninn) are documented in this f
 Inside a double-quoted bash string or an unquoted heredoc, `$7` expands to
 nothing before Python runs, so "$7.2B" was stored as ".2B" and "$400B/yr" as
 "00B/yr". The codex reconciliation (oaustegard/experiments codex/RESULTS.md)
-found 23 memories damaged this way, written April to October 2026, and the
+found 24 memories damaged this way, written April to October 2026, and the
 write had reported success every time.
 
 ### Added

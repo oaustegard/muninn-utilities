@@ -44,7 +44,7 @@ warnings.simplefilter("always", ShellDamageWarning)
 
 # Inside a double-quoted bash string or an unquoted heredoc, `$7` expands to
 # nothing: "$7.2B" arrives here as ".2B", "$400B/yr" as "00B/yr", "$2,500" as
-# ",500". Found in 22 stored memories by the 2026-10-11 codex reconciliation.
+# ",500". Found in 24 stored memories by the 2026-10-11 codex reconciliation.
 # The original is gone by the time Python sees the text, so this only warns:
 # the caller can still re-issue the write through a quoted heredoc.
 _SHELL_DAMAGE = re.compile(
