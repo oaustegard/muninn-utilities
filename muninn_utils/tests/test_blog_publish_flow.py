@@ -847,3 +847,84 @@ def test_duration_anchored_to_year_allowed(patch_path_exists):
         article_extra=f'<img src="/static/hero.png" alt="Hero"><p>Between the 2011 paper and the 2024 writeup it '
                       'went unused for thirteen years.</p>')
     bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+# ── bsky:uri anchoring (2026-10-11) ─────────────────────────────────
+import json
+# which-embedding-models-train-for-quantization shipped with bsky:uri set to
+# the thread root announcing the PREVIOUS post, so its widget showed that
+# post's likes.
+
+def test_validate_blog_html_rejects_prefilled_bsky_uri(patch_path_exists):
+    html = _valid_html().replace(
+        '<meta name="bsky:uri" content="">',
+        '<meta name="bsky:uri" content="at://did:plc:x/app.bsky.feed.post/abc">')
+    with pytest.raises(ValueError, match="pre-filled"):
+        bp.validate_blog_html(html, repo="oaustegard/muninn.austegard.com")
+
+
+PAGE = "https://muninn.austegard.com/blog/new-post.html"
+
+
+def _post_payload(facet_uri=None, embed_uri=None, text="see it"):
+    record = {"text": text}
+    if facet_uri:
+        record["facets"] = [{"features": [
+            {"$type": "app.bsky.richtext.facet#link", "uri": facet_uri}]}]
+    post = {"record": record}
+    if embed_uri:
+        post["embed"] = {"external": {"uri": embed_uri}}
+    return json.dumps({"posts": [post]}).encode()
+
+
+def _fake_urlopen(monkeypatch, body=None, exc=None):
+    def fake(url, timeout=None):
+        if exc:
+            raise exc
+        return MagicMock(read=MagicMock(return_value=body))
+    monkeypatch.setattr(bp.urllib.request, "urlopen", fake)
+
+
+@pytest.mark.parametrize("kw", [
+    {"facet_uri": PAGE},
+    {"embed_uri": PAGE + "?utm=x"},
+    {"text": "new: muninn.austegard.com/blog/new-post.html"},
+])
+def test_post_links_url_true(monkeypatch, kw):
+    _fake_urlopen(monkeypatch, _post_payload(**kw))
+    assert bp._post_links_url("at://d/app.bsky.feed.post/r", PAGE) is True
+
+
+def test_post_links_url_false_for_other_page(monkeypatch):
+    _fake_urlopen(monkeypatch, _post_payload(
+        facet_uri="https://muninn.austegard.com/blog/previous-post.html"))
+    assert bp._post_links_url("at://d/app.bsky.feed.post/r", PAGE) is False
+
+
+def test_post_links_url_none_when_unreachable(monkeypatch):
+    _fake_urlopen(monkeypatch, exc=bp.urllib.error.URLError("down"))
+    assert bp._post_links_url("at://d/app.bsky.feed.post/r", PAGE) is None
+
+
+def test_link_engagement_refuses_post_not_linking_page(monkeypatch):
+    monkeypatch.setattr(bp, "_post_links_url", MagicMock(return_value=False))
+    monkeypatch.setattr(bp, "_gh_raw", MagicMock())
+    monkeypatch.setattr(bp, "publish_page", MagicMock())
+    with pytest.raises(ValueError, match="does not link"):
+        bp.link_engagement("oaustegard/muninn.austegard.com",
+                           "blog/new-post.html",
+                           "at://did:plc:x/app.bsky.feed.post/root")
+    bp.publish_page.assert_not_called()
+    bp._post_links_url.assert_called_once_with(
+        "at://did:plc:x/app.bsky.feed.post/root", PAGE)
+
+
+def test_link_engagement_check_can_be_skipped(monkeypatch):
+    monkeypatch.setattr(bp, "_post_links_url", MagicMock(return_value=False))
+    monkeypatch.setattr(bp, "_gh_raw", MagicMock(
+        return_value='<meta name="bsky:uri" content="">'))
+    monkeypatch.setattr(bp, "publish_page", MagicMock(return_value="sha1"))
+    assert bp.link_engagement("oaustegard/muninn.austegard.com",
+                              "blog/new-post.html",
+                              "at://did:plc:x/app.bsky.feed.post/r",
+                              require_page_link=False) == "sha1"

@@ -171,7 +171,8 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
     Checks (in order):
         1. <meta property="article:published_time"> present + parseable ISO timestamp
         2. Byline uses class="post-meta"
-        3. <meta name="bsky:uri"> stub present
+        3. <meta name="bsky:uri"> stub present and EMPTY — link_engagement fills
+           it from the announcement post once that post exists
         4. If og:image is set, body contains an inline <img>
         5. If og:image points to an asset in `repo`, that asset exists
         6. All inline <img> tags have non-empty alt=""
@@ -214,6 +215,15 @@ def validate_blog_html(content: str, repo: str, branch: str = "main") -> None:
             'Missing <meta name="bsky:uri" content=""> stub — link_engagement '
             "updates but does not insert. Engagement widget will silently fail "
             "to wire (memory 225433fb)."
+        )
+    m = re.search(r'<meta\s+name="bsky:uri"\s+content="([^"]*)"', content)
+    if m and m.group(1).strip():
+        raise ValueError(
+            f"bsky:uri is pre-filled ({m.group(1)!r}). Publish with an empty "
+            "stub; link_engagement sets it to the post that announces THIS "
+            "page once that post exists. A hand-filled URI pointed the "
+            "which-embedding-models-train-for-quantization widget at the "
+            "thread root announcing the previous post (2026-10-11)."
         )
 
     # 4 + 5. og:image consistency: inline <img>, and asset existence.
@@ -771,13 +781,73 @@ def _bsky_url_to_at_uri(bsky_url):
     return f"at://{did}/app.bsky.feed.post/{rkey}"
 
 
-def link_engagement(repo, path, bsky_uri):
+_BSKY_APPVIEW = "https://public.api.bsky.app/xrpc"
+
+
+def _post_links_url(at_uri, page_url):
+    """True iff the post at `at_uri` links `page_url` (facet, embed card, or
+    text); False if it does not; None if the post could not be fetched.
+
+    Comparison ignores scheme, a trailing slash, query and fragment.
+    """
+    def norm(u):
+        u = re.sub(r"^https?://", "", u.split("#")[0].split("?")[0])
+        return u.rstrip("/")
+
+    from urllib.parse import quote
+    try:
+        resp = urllib.request.urlopen(
+            f"{_BSKY_APPVIEW}/app.bsky.feed.getPosts?uris={quote(at_uri, safe='')}",
+            timeout=15)
+        posts = json.loads(resp.read()).get("posts", [])
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+    if not posts:
+        return None
+    post = posts[0]
+    record = post.get("record", {})
+    urls = [f.get("uri", "") for facet in record.get("facets", []) or []
+            for f in facet.get("features", []) if "uri" in f]
+    for embed in (record.get("embed") or {}, post.get("embed") or {}):
+        ext = embed.get("external") or (embed.get("media") or {}).get("external") or {}
+        if ext.get("uri"):
+            urls.append(ext["uri"])
+    target = norm(page_url)
+    return (any(norm(u) == target for u in urls)
+            or target in record.get("text", ""))
+
+
+def _page_url(repo, path):
+    for site, site_repo in _SITE_TO_REPO.items():
+        if site_repo == repo:
+            return f"https://{site}/{path.lstrip('/')}"
+    return None
+
+
+def link_engagement(repo, path, bsky_uri, require_page_link=True):
     """Update a page's bsky:uri meta tag and noscript link for the engagement widget.
 
     bsky_uri: AT URI or bsky.app URL (auto-resolved to AT URI for meta tag).
+    The post must link the page itself: the widget counts likes and replies
+    from the anchored post down, so anchoring to a thread root that announces
+    a different page shows that page's engagement. When a post is announced
+    as a reply inside another post's thread, pass the reply. Raises
+    ValueError if the post does not link the page; warns and proceeds if the
+    post can't be fetched. `require_page_link=False` skips the check.
     Returns commit SHA or None if nothing to update.
     """
     at_uri = _bsky_url_to_at_uri(bsky_uri)
+    page_url = _page_url(repo, path)
+    if require_page_link and page_url:
+        linked = _post_links_url(at_uri, page_url)
+        if linked is False:
+            raise ValueError(
+                f"{at_uri} does not link {page_url}. Anchor the page to the "
+                "post that announces it (in a thread, the reply carrying the "
+                "link, not the thread root), or pass require_page_link=False."
+            )
+        if linked is None:
+            print(f"  ⚠ Could not fetch {at_uri}; page-link check skipped")
     m = re.match(r"at://([^/]+)/app\.bsky\.feed\.post/(.+)", at_uri)
     bsky_app_url = f"https://bsky.app/profile/{m.group(1)}/post/{m.group(2)}" if m else bsky_uri
 
