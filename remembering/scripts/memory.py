@@ -36,6 +36,43 @@ from .config import config_get, config_set
 from .result import wrap_results, normalize_to_utc, MemoryResult, MemoryResultList
 from .aliases import accept_aliases, MemoryWriteId
 
+class ShellDamageWarning(UserWarning):
+    """Memory text shows the marks of `$` eaten by shell expansion before it reached Python."""
+
+
+warnings.simplefilter("always", ShellDamageWarning)
+
+# Inside a double-quoted bash string or an unquoted heredoc, `$7` expands to
+# nothing: "$7.2B" arrives here as ".2B", "$400B/yr" as "00B/yr", "$2,500" as
+# ",500". Found in 22 stored memories by the 2026-10-11 codex reconciliation.
+# The original is gone by the time Python sees the text, so this only warns:
+# the caller can still re-issue the write through a quoted heredoc.
+_SHELL_DAMAGE = re.compile(
+    r"(?<![\w$€£¥.,])\.\d+\s?(?:B|M|K|T|bn|tn)\b"          # .2B
+    r"|(?<![\w$€£¥.,])0\d+(?:\.\d+)?\s?(?:B|M|K|T|bn|k)\b"  # 00B, 03.5B
+    r"|\(~?0[BMKT]\)"                                    # (~0B)
+    r"|(?<![\w$€£¥\d.,]),\d{3}\b"                          # ,500
+)
+
+
+def _warn_shell_damage(summary: str) -> list:
+    """Warn when `summary` looks like a shell ate its dollar amounts; return the suspect spans."""
+    if not isinstance(summary, str):
+        return []
+    spans = [m.group(0) for m in _SHELL_DAMAGE.finditer(summary)]
+    if spans:
+        warnings.warn(
+            f"memory text has {len(spans)} span(s) that look like shell expansion removed a "
+            f"'$' and the digit after it: {spans[:5]}. Bash expands $1-$9 and $NAME inside "
+            "double quotes and unquoted heredocs, so the write stored the damaged text. Re-issue "
+            "it through a quoted heredoc (python3 - <<'EOF' ... EOF) or the Muninn remember tool, "
+            "then forget or supersede this one.",
+            ShellDamageWarning,
+            stacklevel=3,
+        )
+    return spans
+
+
 # v3.2.0: Register automatic flush on exit to prevent data loss from background writes
 @atexit.register
 def _auto_flush_on_exit():
@@ -249,6 +286,7 @@ def remember(summary: str, type: str = None, *, tags: list = None, conf: float =
         type = mem_type
     if type not in TYPES:
         raise ValueError(f"Invalid type '{type}'. Must be one of: {', '.join(sorted(TYPES))}")
+    _warn_shell_damage(summary)
 
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -1428,6 +1466,7 @@ def supersede(original_id: str, summary: str, type: str, *,
         drift_tag = f"drift-class-{drift_class}"
         if drift_tag not in tags:
             tags.append(drift_tag)
+    _warn_shell_damage(summary)
     original_id = _resolve_memory_id(original_id)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     new_id = str(uuid.uuid4())
@@ -2081,6 +2120,7 @@ def remember_batch(items: list, *, sync: bool = True) -> list:
                 stacklevel=2,
             )
             summary = item.get('what')
+        _warn_shell_damage(summary)
         mem_type = item.get('type')
 
         # Validate required fields

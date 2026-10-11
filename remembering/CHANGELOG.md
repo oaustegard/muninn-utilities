@@ -2,6 +2,27 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.22.0] - 2026-10-11
+
+Inside a double-quoted bash string or an unquoted heredoc, `$7` expands to
+nothing before Python runs, so "$7.2B" was stored as ".2B" and "$400B/yr" as
+"00B/yr". The codex reconciliation (oaustegard/experiments codex/RESULTS.md)
+found 23 memories damaged this way, written April to October 2026, and the
+write had reported success every time.
+
+### Added
+
+- `ShellDamageWarning`. `remember()`, `supersede()` and `remember_batch()`
+  warn when the text carries the marks of a stripped dollar: a magnitude
+  starting with a dot (".2B"), one starting with 0 and another digit ("00B",
+  "03.5B"), "(~0B)", or a bare ",500". The original is lost before Python sees
+  it, so the write still goes through; the warning names the spans and the
+  quoted-heredoc form to re-issue it with. On the store it fired on 13
+  damaged memories and on one note quoting the bug.
+- CCotw also blocks the cause before it runs: claude-workspace
+  `scripts/guard_shell_dollar.py` denies a memory write passed through an
+  expanding shell string.
+
 ## [5.21.0] - 2026-10-09
 
 From the 2026-10-09 memory audit (oaustegard/experiments memory-audit/RESULTS.md):
