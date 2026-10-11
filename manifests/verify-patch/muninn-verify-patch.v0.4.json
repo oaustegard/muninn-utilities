@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "name": "Muninn verify_patch",
     "summary": "Semi-formal patch verification with outcome tracking. Sends a unified diff plus context to a Claude model with a structured premises/trace/regression-check template, stores the verification result in memory, and exposes review/stamp helpers for post-merge calibration.",
-    "description": "Read-and-reason utility, not a write/execute one. The model is invoked via the orchestrating-agents skill's `claude_client.invoke_claude` (uses ANTHROPIC_API_KEY). Verification results are persisted via the remembering library (uses TURSO_TOKEN, TURSO_URL) so the prediction can later be compared to actual merge outcome via `stamp_verification(tracking_id, outcome)`. The outcome ledger feeds calibration analysis (review_verifications) \u2014 over time, this surfaces patterns of overconfident verdicts.",
+    "description": "Read-and-reason utility, not a write/execute one. The model is invoked via the orchestrating-chat-agents skill (formerly orchestrating-agents)'s `claude_client.invoke_claude` (uses ANTHROPIC_API_KEY). Verification results are persisted via the remembering library (uses TURSO_TOKEN, TURSO_URL) so the prediction can later be compared to actual merge outcome via `stamp_verification(tracking_id, outcome)`. The outcome ledger feeds calibration analysis (review_verifications) \u2014 over time, this surfaces patterns of overconfident verdicts.",
     "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/verify_patch.py",
     "author": {
       "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
@@ -40,7 +40,7 @@
   "env": [
     {
       "name": "ANTHROPIC_API_KEY",
-      "prompt": "Anthropic API key. Used to invoke the Claude model that performs the structured review (sonnet-4-6 by default; configurable per call). Read indirectly via the orchestrating-agents skill's claude_client; verify_patch itself does not reference os.environ for this name.",
+      "prompt": "Anthropic API key. Used to invoke the Claude model that performs the structured review (sonnet-4-6 by default; configurable per call). Read indirectly via the orchestrating-chat-agents skill (formerly orchestrating-agents)'s claude_client; verify_patch itself does not reference os.environ for this name.",
       "secret": true,
       "required": true,
       "validation_regex": "^sk-ant-[A-Za-z0-9_-]+$",

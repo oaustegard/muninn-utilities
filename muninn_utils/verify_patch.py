@@ -1,6 +1,6 @@
 """verify_patch: Semi-formal patch verification with outcome tracking."""
 import sys, re, time, os
-sys.path.insert(0, '/mnt/skills/user/orchestrating-agents/scripts')
+sys.path.insert(0, '/mnt/skills/user/orchestrating-chat-agents/scripts')
 
 _TEMPLATE = """Analyze this patch for correctness using semi-formal reasoning.
 
