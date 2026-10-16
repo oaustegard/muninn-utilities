@@ -39,14 +39,20 @@ Unlike zeitgeist, fly does NOT skip on "too soon" — it runs whenever dispatche
 4. **Novelty gate** — before any source fetching, with a title AND a one-paragraph
    pitch that names the primary source:
    ```python
-   from muninn_utils.fly_novelty import assess_candidate, format_assessment, suggest_fields
+   from muninn_utils.fly_novelty import (assess_candidate, format_assessment,
+                                         suggest_fields, suggest_seeds)
    history = list_flight_logs(100)
-   print(suggest_fields(history))          # off-menu starting fields
+   print(suggest_seeds(history))           # Oskar's own topics, least recently flown
+   print(suggest_fields(history))          # random off-menu starting fields
    print(format_assessment(assess_candidate(title, pitch, history)))
    ```
    BLOCKED means pick another topic and run the gate again. There is no override
    flag; Oskar asking for a topic in a flight-log comment is the only exception,
    and the pitch quotes his comment.
+
+   Start from a seed when one fits: the seeds come from what Oskar likes,
+   reposts and posts on Bluesky, which is mostly not what the flies had been
+   covering.
 
 **The rule**: the domain you pick must not appear in the printed window, and the
 gate must print PASS. Breadth is the mission. 73 of the 100 flights before

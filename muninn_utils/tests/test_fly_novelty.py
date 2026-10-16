@@ -100,3 +100,39 @@ def test_format_assessment_shape(logs):
     out = fn.format_assessment(a)
     assert out.startswith("NOVELTY GATE: BLOCKED")
     assert "nearest prior titles" in out
+
+
+# ── Oskar seed topics ────────────────────────────────────────────────────────
+
+def test_seed_matches_examples():
+    assert "courts-and-executive-power" in fn.seed_matches(
+        "Judge Reyes's opinion barring the administration from rescinding TPS")
+    assert "web-craft" in fn.seed_matches("A whole office suite stored in the URL fragment")
+    assert "art-history" in fn.seed_matches("Samson and Delilah, a painting by Lucas Cranach")
+    assert fn.seed_matches("Clinker and rivets in Viking-age ships") == []
+
+
+def test_seed_cooldown_blocks_recent_seed(logs):
+    recent = [dict(logs[0], title="Bach's chorale harmonization as a search problem")] + logs[1:]
+    a = fn.assess_candidate("Strudel and the live-coding scene",
+                            "Live-coded music in the browser.", recent, now=NOW)
+    assert "music-and-sound" in a["seeds"]
+    assert any("'music-and-sound'" in r for r in a["reasons"])
+
+
+def test_seed_not_subject_to_attractor_cap(logs):
+    # The newest 7 are dense with attractors; an unflown seed still passes.
+    a = fn.assess_candidate("Interurban railways of the 1920s",
+                            "Ridership records of the electric interurban railway network.",
+                            logs, now=NOW)
+    assert a["ok"], a["reasons"]
+    assert "urbanism-and-transport" in a["seeds"] and a["buckets"] == []
+
+
+def test_suggest_seeds_skips_cooled_and_returns_hints(logs):
+    recent = [dict(logs[0], title="Kandinsky's painting as proto-digital art")] + logs[1:]
+    picks = fn.suggest_seeds(recent, k=20, now=NOW, rng=random.Random(1))
+    names = [n for n, _ in picks]
+    assert "art-history" not in names
+    assert all(h for _, h in picks)
+    assert len(names) == len(set(names))
