@@ -35,10 +35,22 @@ Unlike zeitgeist, fly does NOT skip on "too soon" — it runs whenever dispatche
    — open flight logs with their reactions and Oskar's comments. His engagement
    signals interest. (There is no `list_discussions`; sessions guessed at it.)
 3. **Pick a direction** per `policy['instructions']` (the fly-command STEP 0
-   diversity check): a domain ABSENT from the 7-flight window, unless the repeat
-   override's named primary artifact applies.
+   diversity check): a domain ABSENT from the 7-flight window.
+4. **Novelty gate** — before any source fetching, with a title AND a one-paragraph
+   pitch that names the primary source:
+   ```python
+   from muninn_utils.fly_novelty import assess_candidate, format_assessment, suggest_fields
+   history = list_flight_logs(100)
+   print(suggest_fields(history))          # off-menu starting fields
+   print(format_assessment(assess_candidate(title, pitch, history)))
+   ```
+   BLOCKED means pick another topic and run the gate again. There is no override
+   flag; Oskar asking for a topic in a flight-log comment is the only exception,
+   and the pitch quotes his comment.
 
-**The rule**: the domain you pick must not appear in the printed window. Breadth is the mission.
+**The rule**: the domain you pick must not appear in the printed window, and the
+gate must print PASS. Breadth is the mission. 73 of the 100 flights before
+2026-10-16 landed on ten recurring subtopics; the gate exists because of that.
 
 **IMPORTANT: Reserve your last 3 turns for Phase 3+4. Phase 4 requires `create_discussion` — mandatory.**
 
