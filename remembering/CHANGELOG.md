@@ -2,6 +2,22 @@
 
 All notable changes to the `remembering` skill (Muninn) are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `probes/recall_contract.py` runs without API_KEY. It calls the Messages API
+  when API_KEY is set and headless `claude -p` otherwise, isolated from tools,
+  settings, MCP and any repo's CLAUDE.md. CCotw has no API_KEY by design, so
+  the Daily Perch sleep pass logged "Probes skipped" from September on (20
+  session logs by 2026-10-27). Over `claude -p` on claude-sonnet-4-6 the probe
+  passes with the August split: without the footer 0/3 used `summary`, with it
+  3/3. A transport failure now exits 2 and records nothing, where it used to
+  surface as a failed probe.
+- `tasks/sleep.md`: the probe loop finds the remembering dir on CCotw
+  (`/mnt/skills/user/remembering`) as well as Claude.ai, reports exit 2 as
+  PROBE ERROR, and no longer skips when API_KEY is absent.
+
 ## [5.22.0] - 2026-10-11
 
 Inside a double-quoted bash string or an unquoted heredoc, `$7` expands to

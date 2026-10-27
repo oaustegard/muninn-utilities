@@ -19,14 +19,18 @@ Sleep runs whenever dispatched — no cadence skip. The `policy['last_run']` is 
 
 ### Phase 0.5: Probes (self-run tests — never hand these to Oskar)
 
-`remembering/probes/*.py` are executable regression checks for behavioral fixes: each replicates a recorded failure condition against a fresh model or container and exits 0/1. Run every probe not run in the last 7 days (check `recall(tags=["probe"], n=20)` for the last `PROBE <name>` memory):
+`remembering/probes/*.py` are executable regression checks for behavioral fixes: each replicates a recorded failure condition against a fresh model or container and exits 0 (pass), 1 (fail) or 2 (transport error: no model reply, records nothing). Run every probe not run in the last 7 days (check `recall(tags=["probe"], n=20)` for the last `PROBE <name>` memory):
 
 ```bash
-cd /home/claude/muninn-utilities/remembering
-for f in probes/*.py; do python3 -m probes.$(basename $f .py) --record || echo "PROBE FAIL: $f"; done
+cd /home/claude/muninn-utilities/remembering 2>/dev/null || cd /mnt/skills/user/remembering   # Claude.ai || CCotw
+for f in probes/*.py; do
+  python3 -m probes.$(basename $f .py) --record; rc=$?
+  [ $rc -eq 1 ] && echo "PROBE FAIL: $f"
+  [ $rc -eq 2 ] && echo "PROBE ERROR: $f (transport, not a behavioral result)"
+done
 ```
 
-`--record` writes the result to memory. On FAIL: open an issue on `oaustegard/muninn-utilities` (`muninn_utils.github_rw`) titled `probe: <name> failing`, body = the JSON result, and tag the recorded memory `needs-fix`. Do not just log it — a failed probe nobody reads is the situation these exist to end (memories f28b6478, 3704abbe, 173b0e50: three sessions repeated one failure while the diagnosis sat in the store). Each probe is ~12 Sonnet calls; skip only if API_KEY is absent, and say so in the session summary.
+`--record` writes the result to memory. On FAIL: open an issue on `oaustegard/muninn-utilities` (`muninn_utils.github_rw`) titled `probe: <name> failing`, body = the JSON result, and tag the recorded memory `needs-fix`. Do not just log it — a failed probe nobody reads is the situation these exist to end (memories f28b6478, 3704abbe, 173b0e50: three sessions repeated one failure while the diagnosis sat in the store). Each probe is ~12 Sonnet calls, made through the Messages API when API_KEY is set and through headless `claude -p` otherwise. CCotw has no API_KEY by design, so an absent API_KEY is not a reason to skip. A PROBE ERROR is not a FAIL: open no issue, and name it in the session summary.
 
 ### Phase 0.6: Weekly backup (runs BEFORE pruning)
 
