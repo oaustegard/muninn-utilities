@@ -1,10 +1,11 @@
 """Rebuild and publish the muninn.austegard.com search index in one call.
 
-The site search (muninn-search Worker) reads a BM25+dense index from
-Cloudflare KV, which does NOT update on publish: the CI workflow
-(.github/workflows/build-search-index.yml) stays dormant until the repo
-owner adds the CF_* secrets. Until then, reindexing after every blog/perch/
-scratch publish is a mandatory manual step (blog-publishing-trigger, 2026-06-20).
+The site search reads a BM25+dense index from Cloudflare KV, which does NOT
+update on publish, so reindexing after every blog/perch/scratch publish is a
+step of publishing (the CI workflow that once did it was removed 2026-06-26).
+Since 2026-11-05 the index is embedded with Ettin-17m on the CPU
+(scripts/ettin_embedder.py in the site repo: onnxruntime + tokenizers, model
+downloaded once and checked by sha256), so no embedding API or gateway is called.
 
 This module collapses that step - previously pip installs + a fresh clone +
 a subprocess + a hand-rolled verify - into:
@@ -19,9 +20,10 @@ or, wired into a publish so it runs detached after deploy:
         verify_query="<distinctive phrase from the new post>",
         verify_expect="blog/<slug>"))
 
-Requires GH_TOKEN (clone) and CF_ACCOUNT_ID / CF_GATEWAY_ID / CF_API_TOKEN
-(KV publish, embeds) in the environment - source GitHub.env and proxy.env
-before calling, as with every other credentialed utility.
+Requires GH_TOKEN (clone) and CF_ACCOUNT_ID / CF_API_TOKEN (KV publish) in
+the environment - source GitHub.env and proxy.env before calling, as with every
+other credentialed utility. CF_GATEWAY_ID is no longer needed: it was for the
+Gemini embeddings the index used before 2026-11-05.
 
 Verification notes learned the hard way (2026-07-06):
 - The worker's response key is ``hits`` (each with a ``chunk_id``), NOT
@@ -50,9 +52,11 @@ _PIP_DEPS = [
     "bm25s",
     "beautifulsoup4",
     "numpy",
+    "onnxruntime",   # Ettin-17m document embedder (site scripts/ettin_embedder.py)
+    "tokenizers",
 ]
 # import-name probes for the pip specs above (repo name != module name for remax_kb)
-_IMPORT_PROBES = ["remax_kb", "bm25s", "bs4", "numpy"]
+_IMPORT_PROBES = ["remax_kb", "bm25s", "bs4", "numpy", "onnxruntime", "tokenizers"]
 
 
 def _ensure_deps() -> None:
@@ -128,7 +132,7 @@ def reindex_search(repo: str = SITE_REPO,
     (the index may simply still be propagating) but is reported as
     verified=False for the caller to decide about.
     """
-    for var in ("CF_ACCOUNT_ID", "CF_GATEWAY_ID", "CF_API_TOKEN"):
+    for var in ("CF_ACCOUNT_ID", "CF_API_TOKEN"):
         if not os.environ.get(var):
             raise RuntimeError(f"{var} not set - source /mnt/project/proxy.env first")
 
