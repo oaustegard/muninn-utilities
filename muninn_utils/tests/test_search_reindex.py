@@ -27,3 +27,15 @@ def test_missing_api_token_still_rejected(monkeypatch):
     monkeypatch.delenv("CF_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError, match="CF_API_TOKEN"):
         sr.reindex_search()
+
+
+def test_clone_keeps_the_token_out_of_argv(monkeypatch, tmp_path):
+    secret = "ghp_" + "t0k3n" * 6
+    monkeypatch.setenv("GH_TOKEN", secret)
+    seen = []
+    monkeypatch.setattr(sr.subprocess, "run", lambda argv, **kw: seen.append(argv))
+    sr._fresh_clone("oaustegard/muninn.austegard.com", str(tmp_path))
+    (argv,) = seen
+    assert not any(secret in a for a in argv)
+    assert "https://github.com/oaustegard/muninn.austegard.com.git" in argv
+    assert any(a.startswith("credential.helper=") and "$GH_TOKEN" in a for a in argv)

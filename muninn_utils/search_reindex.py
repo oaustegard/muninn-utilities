@@ -77,9 +77,14 @@ def _fresh_clone(repo: str, workdir: str) -> str:
     if not token:
         raise RuntimeError("GH_TOKEN not set - source /mnt/project/GitHub.env first")
     dest = os.path.join(workdir, "site")
+    # The token reaches git through a one-shot credential helper that reads GH_TOKEN from the
+    # environment, never through the URL or argv: a URL token is stored in the clone's
+    # .git/config, and a failed clone's CalledProcessError prints the argv (and so the token)
+    # into the traceback that publish_and_announce files under detached_failures.
+    helper = '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
     subprocess.run(
-        ["git", "clone", "-q", "--depth", "1",
-         f"https://x-access-token:{token}@github.com/{repo}.git", dest],
+        ["git", "-c", f"credential.helper={helper}", "clone", "-q", "--depth", "1",
+         f"https://github.com/{repo}.git", dest],
         check=True,
     )
     return dest
