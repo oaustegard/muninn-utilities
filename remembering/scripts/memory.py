@@ -1636,6 +1636,11 @@ def memory_histogram() -> dict:
     age_buckets = {"0-7d": 0, "8-30d": 0, "31-90d": 0, "90d+": 0}
     for m in results:
         created = datetime.fromisoformat(m['created_at'].replace('Z', '+00:00'))
+        # Older rows store created_at without an offset (SQLite datetime('now')
+        # form). Those are UTC; tag them so the subtraction from an aware `now`
+        # doesn't raise "can't subtract offset-naive and offset-aware datetimes".
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
         age_days = (now - created).days
         if age_days <= 7:
             age_buckets["0-7d"] += 1
