@@ -2,40 +2,19 @@
 Zeitgeist deduplication: semantic delta check before storage.
 
 Compares each topic section of a draft zeitgeist against recent entries
-using Gemini embeddings (via CF AI Gateway). Flags duplicative sections
-and produces a compressed delta-only version.
+using the local Ettin-17m embedder (muninn_utils.ettin_embed, CPU, no API
+or gateway). Flags duplicative sections and produces a compressed
+delta-only version.
 
 Usage:
     from muninn_utils.zeitgeist_delta import check_delta
     report = check_delta(draft_text)
     print(report)             # summary with per-section verdicts
     print(report.delta_text)  # compressed version to store
-
-Requires: proxy.env loaded (CF_ACCOUNT_ID, CF_GATEWAY_ID, CF_API_TOKEN).
 """
 
-import os
 import re
-import sys
 from dataclasses import dataclass
-from pathlib import Path
-
-# Ensure semantic-grep scripts are importable
-_sg_path = '/mnt/skills/user/semantic-grep/scripts'
-if _sg_path not in sys.path:
-    sys.path.insert(0, _sg_path)
-
-
-def _ensure_proxy_env():
-    """Load proxy.env if not already in environment."""
-    if os.environ.get('CF_ACCOUNT_ID'):
-        return
-    env_path = Path('/mnt/project/proxy.env')
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if '=' in line and not line.startswith('#'):
-                k, v = line.strip().split('=', 1)
-                os.environ[k] = v
 
 
 @dataclass
@@ -103,14 +82,18 @@ def _split_sections(text: str) -> list[tuple[str, str]]:
 
 
 def check_delta(draft: str, n_recent: int = 5,
-                dup_threshold: float = 0.93,
-                delta_threshold: float = 0.85) -> DeltaReport:
+                dup_threshold: float = 0.82,
+                delta_threshold: float = 0.55) -> DeltaReport:
     """Compare draft zeitgeist sections against recent entries semantically.
 
-    Calibrated 2026-05-04 against 2 weeks of zeitgeist entries:
-      - 0.93+ = same story, same facts, different day number (Iran/Hormuz)
-      - 0.85-0.93 = same domain, may have new info (Norway different stories)
-      - <0.85 = genuinely new topic
+    Sections are embedded with Ettin-17m (encode_long: 128-token windows,
+    averaged), so the scale is not Gemini's. Calibrated 2026-11-15 on 147
+    sections from zeitgeist entries May-Nov 2026, each against the 5 entries
+    before it:
+      - 0.82+ = same facts restated (UK local elections eve vs 3 days out, 0.83);
+        the closest section with new facts scored 0.80
+      - 0.55-0.82 = same running story, new developments (Iran/Gulf, Ukraine)
+      - <0.55 = new topic (no new topic scored above 0.55)
 
     Args:
         draft: Full draft zeitgeist text.
@@ -122,9 +105,7 @@ def check_delta(draft: str, n_recent: int = 5,
     Returns:
         DeltaReport with per-section verdicts and compressed delta_text.
     """
-    _ensure_proxy_env()
-    from semantic_grep import embed_batch
-    from sklearn.metrics.pairwise import cosine_similarity
+    from muninn_utils.ettin_embed import get_embedder
     from scripts import recall
 
     recent = recall(tags=['zeitgeist'], n=n_recent, type='world')
@@ -153,10 +134,10 @@ def check_delta(draft: str, n_recent: int = 5,
     # Embed all sections in one batch
     all_texts = ([c for _, c in draft_sections]
                  + [s['content'] for s in recent_pool])
-    embeddings = embed_batch(all_texts, 'RETRIEVAL_DOCUMENT', dim=256)
+    embeddings = get_embedder().encode_long(all_texts)  # L2-normalized
 
     n_draft = len(draft_sections)
-    sim = cosine_similarity(embeddings[:n_draft], embeddings[n_draft:])
+    sim = embeddings[:n_draft] @ embeddings[n_draft:].T
 
     verdicts = []
     delta_parts = []
@@ -166,13 +147,15 @@ def check_delta(draft: str, n_recent: int = 5,
         norm = _normalize_topic(topic)
 
         # Find best match, preferring same-topic matches
+        best_eff = float('-inf')
         best_sim = 0.0
         best_idx = 0
         for j, rp in enumerate(recent_pool):
             score = float(sim[i][j])
             # Boost same-topic matches (they're the real comparison)
             effective = score + (0.03 if rp['norm_topic'] == norm else 0)
-            if effective > best_sim:
+            if effective > best_eff:
+                best_eff = effective
                 best_sim = score  # report raw score
                 best_idx = j
 
