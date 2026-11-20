@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from .capability_model import expand
 
-MODEL = "gemini-3.6-flash"  # explicit string: the `flash` alias resolves stale
+MODEL = "gemini-4-hydrogen"  # explicit string; invoking-gemini >= 0.10.0 also resolves `flash` here
 _MAX_SLICE = 60
 
 
