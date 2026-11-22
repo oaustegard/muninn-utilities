@@ -2,6 +2,8 @@
 
 You are the raven flying out to see something new. The goal is breadth — going somewhere you haven't been, learning something you didn't know. Not circling back to familiar territory.
 
+The flight exists to grow memory. A finding that is only in the discussion post, or only in a session log that the sleep pass prunes at 60 days, is a finding later sessions cannot use.
+
 ### Phase 0: Read the live policy (1 turn)
 
 ```python
@@ -104,9 +106,26 @@ The trap governs topic CHOICE. It does not excuse skipping the own-work check in
    two are not enough (8665a0ad).
 2. Any statement about Oskar's or Muninn's own systems cites a memory id or a
    repo path. A connection with no source is left out of the log.
-3. `remember()` the most significant findings (type="analysis" or "world").
-4. Connect to existing knowledge via `refs=[]` where genuine connections exist.
-5. Note threads worth pursuing in future sessions.
+3. **Store each finding as its own memory** (2-5 per flight), so later work
+   finds it by recalling the thing it is working on:
+   ```python
+   remember("<the finding, with numbers, the source URL, and what it means for"
+            " any spoke/project it touches>",
+            type="world" or "analysis",
+            tags=["fly-finding", <topic terms>, <spoke or project names it bears on>,
+                  <date>],
+            refs=[<ids of the own-work memories from step 1>])
+   ```
+   Do NOT tag findings `session-log`: the sleep pass prunes session-logs at 60
+   days. Tag the spoke by name (`remex`, `remax`, `aeyu`, ...) when the finding
+   bears on it; that tag is how a later remex session sees it. A finding with no
+   own-work connection is still stored, tagged by its topic and by the Oskar
+   seed it came from.
+   Why: before 2026-11-22 each flight left one session-log memory tagged with
+   its own topic words; recall("remex") at n=20 returned no fly memory, and
+   the logs were pruned at 60 days.
+4. The session log (`session-log` tag) holds only the discussion link, the
+   finding memory ids, and the threads worth pursuing.
 
 ### Phase 4: Write Flight Log (1 turn — MANDATORY)
 
