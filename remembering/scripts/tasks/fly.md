@@ -66,12 +66,13 @@ Go outward first, connect inward second:
 
 1. **web_search** — primary tool. Search for your chosen topic. Follow interesting links.
 2. **deep_read** — follow promising URLs. Pass `context` to focus the sub-agent's analysis.
-3. **recall** — AFTER finding something new, check: "does this connect to anything I already know?" Cross-domain connections are high-value bonuses of breadth, not the mission itself.
-4. **bsky_search / bsky_feed** — secondary. Use if your topic has Bluesky discourse, but don't let feeds pull you back to the AI-paper attractor.
+3. **bsky_search / bsky_feed** — secondary. Use if your topic has Bluesky discourse, but don't let feeds pull you back to the AI-paper attractor.
 
 #### The attractor trap
 
 If you notice yourself drifting toward memory systems, RAG, context management, or LLM architecture — STOP. Ask: "Did I choose this, or did my recall seed pull me here?" If the latter, pick a different direction. You can always explore AI topics, but they should be a deliberate choice, not a default.
+
+The trap governs topic CHOICE. It does not excuse skipping the own-work check in Phase 3: a seed drawn from Oskar's interests often lands on something he or Muninn has built.
 
 #### Web search tips
 
@@ -85,9 +86,27 @@ If you notice yourself drifting toward memory systems, RAG, context management, 
 
 ### Phase 3: Synthesize (1-2 turns)
 
-1. `remember()` the most significant findings (type="analysis" or "world").
-2. Connect to existing knowledge via `refs=[]` where genuine connections exist.
-3. Note threads worth pursuing in future sessions.
+1. **Own-work check (required, before writing anything).** Recall on the specific
+   names the flight turned up — methods, papers, libraries, people — not on the
+   broad domain word:
+   ```python
+   for term in [<method>, <paper or author>, <library>]:
+       print(term, recall(term, n=5))
+   ```
+   Also read the CONSTELLATION spoke list and the project-name-disambiguation
+   ops entry from boot: if any spoke works in this domain (e.g. remex/remax for
+   vector quantization), recall it by name and say in the log what the flight
+   means for it: a confirmation, a contradiction, or a concrete change worth
+   testing.
+   Why: Fly 2026-10-23 (#385) covered RaBitQ and the Hadamard trick without
+   mentioning remex, which had adopted RaBitQ's scoring formula nine days
+   earlier (4cd6003e) and floors RHT rounds at 2 while the flown paper says
+   two are not enough (8665a0ad).
+2. Any statement about Oskar's or Muninn's own systems cites a memory id or a
+   repo path. A connection with no source is left out of the log.
+3. `remember()` the most significant findings (type="analysis" or "world").
+4. Connect to existing knowledge via `refs=[]` where genuine connections exist.
+5. Note threads worth pursuing in future sessions.
 
 ### Phase 4: Write Flight Log (1 turn — MANDATORY)
 
@@ -96,7 +115,7 @@ Call `create_discussion` with:
 - **Body**: Your synthesis in markdown. Include:
   - What you explored and why you chose it
   - Key findings with inline [markdown links](https://url) — every source linked
-  - Connections to existing knowledge (if any emerged naturally)
+  - Connections to existing knowledge, including own-work implications from Phase 3 (each with its memory id or repo path)
   - Threads worth pursuing next
 
 **Non-negotiable.** If low on turns, skip extra synthesis and post what you have.
