@@ -411,11 +411,48 @@ def compose_link_post(text, url, auth, og_tags=None, langs=None):
     }
 
 
+_APPVIEW = "https://public.api.bsky.app/xrpc"
+
+
+def reply_refs(parent_uri):
+    """Reply refs for answering the post at ``parent_uri`` (an at:// URI).
+
+    ``parent`` is that post. ``root`` is the parent's own thread root when the
+    parent is itself a reply, and the parent otherwise. Copying the parent into
+    ``root`` for a reply-to-a-reply makes the app-view drop the post from the
+    thread: the reply count rises, the reply can't be opened from it, and its
+    own page shows no parent (muninn 3n2y3xy5x542y, 2026-11-23).
+    Public app-view read; no session.
+    """
+    from urllib.parse import quote
+    resp = urllib.request.urlopen(
+        f"{_APPVIEW}/app.bsky.feed.getPosts?uris={quote(parent_uri, safe='')}"
+    )
+    posts = json.loads(resp.read()).get("posts") or []
+    if not posts or not posts[0].get("cid"):
+        raise ValueError(f"bsky: post not found: {parent_uri} (deleted, or hidden from the public app-view)")
+    post = posts[0]
+    parent = {"uri": post["uri"], "cid": post["cid"]}
+    root = ((post.get("record") or {}).get("reply") or {}).get("root")
+    if root and root.get("uri") and root.get("cid"):
+        return {"root": {"uri": root["uri"], "cid": root["cid"]}, "parent": parent}
+    return {"root": parent, "parent": parent}
+
+
 def create_post(record, auth):
     """Submit a post record to Bluesky.
 
+    A ``reply`` block is rebuilt from its parent URI via ``reply_refs``, so a
+    hand-built record can't post with the wrong thread root.
+
     Returns dict with uri, cid, url, rkey.
     """
+    reply = record.get("reply")
+    if reply:
+        parent_uri = (reply.get("parent") or {}).get("uri")
+        if not parent_uri:
+            raise ValueError("bsky: record.reply has no parent.uri")
+        record = {**record, "reply": reply_refs(parent_uri)}
     data = json.dumps({
         "repo": auth["did"],
         "collection": "app.bsky.feed.post",
