@@ -99,7 +99,7 @@ Per Oskar 2026-05-22: "memories are getting filled up with corrective scar tissu
 
 ### Phase 3: Diagnostics
 
-1. Run `sql_query` to get a histogram: `SELECT type, COUNT(*) as c FROM memories WHERE deleted_at IS NULL GROUP BY type ORDER BY c DESC`
+1. Get the distribution with `from scripts import memory_histogram; print(memory_histogram())`. It returns active memories by type, priority and age. There is no `sql_query` helper.
 2. Check for imbalanced types (too many of one kind, too few of another).
 3. Note any structural issues for the session log.
 
